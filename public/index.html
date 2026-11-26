@@ -91,7 +91,7 @@
 
 <main>
 
-  <!-- 1. API key -->
+  <!-- 1. API key + health -->
   <section class="panel">
     <h2>1. API key</h2>
     <div class="field">
@@ -103,6 +103,11 @@
       <button id="btnClearKey" class="secondary">Forget key</button>
     </div>
     <div id="keyStatus" class="key-status">no key stored</div>
+    <div class="row" style="margin-top:10px;">
+      <button id="btnHealth" class="secondary" disabled>Test DB connection</button>
+      <span id="healthSpinner" class="muted hidden">checking…</span>
+    </div>
+    <div id="healthOut" class="key-status hidden" style="margin-top:6px;"></div>
   </section>
 
   <!-- 2. Input -->
@@ -222,21 +227,13 @@ const tikJsonToB2 = (function () {
 
   function transformPost(post, userId) {
     return {
-      user_id:             userId,
-      file_key:            buildFileKey(userId, post.Date),
-      WhoCanView:          post.WhoCanView ?? null,
-      likes:               Number(post.Likes) || 0,
-      date_posted:         post.Date ?? null,
-      video_cdn:           post.Link ?? null,
-      image_cdn:           post.CoverImage ?? null,
-      b2_bucket:           null,
-      video_url:           null,
-      cover_url:           null,
-      file_size:           null,
-      status:              null,
-      created_at:          null,
-      image_blob_pathname: null,
-      image_blob_url:      null,
+      user_id:     userId,
+      file_key:    buildFileKey(userId, post.Date),
+      WhoCanView:  post.WhoCanView  ?? null,
+      likes:       Number(post.Likes) || 0,
+      date_posted: post.Date        ?? null,
+      video_cdn:   post.Link        ?? null,
+      image_cdn:   post.CoverImage  ?? null,
     };
   }
 
@@ -427,13 +424,17 @@ window.b2CloudUpsert = b2CloudUpsert;
 
   const $ = id => document.getElementById(id);
 
-  const API_URL   = '/api/sql';                 // relative — same origin as this page
-  const KEY_STORE = 'b2_api_key';
+  const API_SQL_URL    = '/api/sql';
+  const API_HEALTH_URL = '/api/health';
+  const KEY_STORE      = 'b2_api_key';
 
   const apiKeyInput   = $('apiKeyInput');
   const keyStatus     = $('keyStatus');
   const btnSaveKey    = $('btnSaveKey');
   const btnClearKey   = $('btnClearKey');
+  const btnHealth     = $('btnHealth');
+  const healthSpinner = $('healthSpinner');
+  const healthOut     = $('healthOut');
   const fileInput     = $('fileInput');
   const fileBanner    = $('fileBanner');
   const fileNameEl    = $('fileName');
@@ -483,6 +484,7 @@ window.b2CloudUpsert = b2CloudUpsert;
       keyStatus.classList.remove('set');
     }
     refreshUpsertButton();
+    refreshHealthButton();
   }
 
   btnSaveKey.addEventListener('click', () => {
@@ -507,7 +509,7 @@ window.b2CloudUpsert = b2CloudUpsert;
     const key = getApiKey();
     if (!key) throw new Error('API key not set');
 
-    const res = await fetch(API_URL, {
+    const res = await fetch(API_SQL_URL, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
       body:    JSON.stringify({ sql, params }),
@@ -537,10 +539,14 @@ window.b2CloudUpsert = b2CloudUpsert;
     const can = !working && Array.isArray(rows) && rows.length > 0 && !!getApiKey();
     btnUpsert.disabled = !can;
   }
+  function refreshHealthButton() {
+    btnHealth.disabled = working || !getApiKey();
+  }
   function setWorking(v) {
     working = v;
     refreshTransformButton();
     refreshUpsertButton();
+    refreshHealthButton();
     upsertSpinner.classList.toggle('hidden', !v);
   }
 
@@ -607,6 +613,48 @@ window.b2CloudUpsert = b2CloudUpsert;
     setStatus('Cleared.', '');
   });
 
+  /* ---------- health check ---------- */
+
+  btnHealth.addEventListener('click', async () => {
+    const key = getApiKey();
+    if (!key) { setStatus('Save an API key first.', 'err'); return; }
+
+    btnHealth.disabled = true;
+    healthSpinner.classList.remove('hidden');
+    healthOut.classList.add('hidden');
+    healthOut.textContent = '';
+
+    try {
+      const res = await fetch(API_HEALTH_URL, {
+        method: 'GET',
+        headers: { 'X-API-Key': key },
+      });
+
+      let data = {};
+      try { data = await res.json(); } catch {}
+
+      if (!res.ok) {
+        const msg = data.error || `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+
+      healthOut.textContent =
+        `OK  ·  db=${data.db}  ·  table=${data.table}  ·  ` +
+        `rowCount=${data.rowCount}  ·  ${data.latencyMs} ms`;
+      healthOut.classList.remove('hidden');
+      healthOut.style.color = 'var(--ok)';
+      setStatus('Health check passed.', 'ok');
+    } catch (err) {
+      healthOut.textContent = 'FAILED: ' + err.message;
+      healthOut.classList.remove('hidden');
+      healthOut.style.color = 'var(--err)';
+      setStatus('Health check failed: ' + err.message, 'err');
+    } finally {
+      healthSpinner.classList.add('hidden');
+      refreshHealthButton();
+    }
+  });
+
   /* ---------- transform ---------- */
 
   btnTransform.addEventListener('click', () => {
@@ -614,14 +662,14 @@ window.b2CloudUpsert = b2CloudUpsert;
     try {
       const doc = JSON.parse(loadedFileText);
 
-      const out = tikJsonToB2.transform(doc);   // may throw
+      const out = tikJsonToB2.transform(doc);
 
       rows = out;
       currentUserId = rows.length ? rows[0].user_id : null;
 
       statUserId.textContent  = currentUserId ?? '—';
       statTotal.textContent   = String(rows.length);
-      statSkipped.textContent = '0';   // transform silently drops bad Dates
+      statSkipped.textContent = '0';
       summaryPanel.classList.remove('hidden');
 
       if (rows.length === 0) {
@@ -704,6 +752,7 @@ window.b2CloudUpsert = b2CloudUpsert;
   refreshKeyStatus();
   refreshFileBanner();
   resetOutputs();
+  refreshHealthButton();
 })();
 </script>
 
