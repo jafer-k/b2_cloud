@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>tikJsonToB2 → b2_cloud</title>
 <style>
   :root {
@@ -24,10 +24,13 @@
            border-radius:10px; padding:14px; }
   .panel h2 { font-size:13px; text-transform:uppercase; letter-spacing:.08em;
               color:var(--muted); margin:0 0 10px; font-weight:600; }
+  .panel h3 { font-size:12px; text-transform:uppercase; letter-spacing:.06em;
+              color:var(--muted); margin:14px 0 8px; font-weight:600; }
   .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
   button { background:var(--accent); color:#fff; border:none; border-radius:8px;
            padding:8px 14px; font-size:13px; font-weight:600; cursor:pointer;
-           transition:background .15s ease; }
+           transition:background .15s ease, opacity .15s ease;
+           display:inline-flex; align-items:center; gap:8px; }
   button:hover:not(:disabled) { background:var(--accent-hover); }
   button.secondary { background:var(--panel-2); color:var(--text);
                      border:1px solid var(--border); }
@@ -36,17 +39,23 @@
   label.file-btn { background:var(--panel-2); color:var(--text);
                    border:1px solid var(--border); border-radius:8px;
                    padding:8px 14px; font-size:13px; font-weight:600;
-                   cursor:pointer; }
+                   cursor:pointer; display:inline-flex; align-items:center; gap:8px;
+                   transition:background .15s ease, opacity .15s ease; }
   label.file-btn:hover { background:#262b36; }
   input[type="file"] { display:none; }
-  input[type="password"], input[type="text"] {
+  input[type="password"], input[type="text"], select, textarea {
     background:var(--panel-2); color:var(--text);
     border:1px solid var(--border); border-radius:8px;
     padding:8px 10px; font-family:var(--mono); font-size:13px;
-    width:100%; max-width:480px;
   }
-  input:focus { outline:2px solid var(--accent); outline-offset:-2px; }
-  .field { display:flex; flex-direction:column; gap:6px; }
+  input[type="password"], input[type="text"] { width:100%; max-width:480px; }
+  select { min-width:160px; }
+  textarea { width:100%; min-height:120px; resize:vertical;
+             white-space:pre; word-break:normal; }
+  input:focus, select:focus, textarea:focus {
+    outline:2px solid var(--accent); outline-offset:-2px;
+  }
+  .field { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
   .field label { font-size:12px; color:var(--muted);
                  text-transform:uppercase; letter-spacing:.06em; font-weight:600; }
   .file-banner { display:flex; align-items:center; gap:12px;
@@ -58,7 +67,7 @@
   .status { font-size:12.5px; padding:8px 10px; border-radius:8px;
             background:var(--panel-2); border:1px solid var(--border);
             color:var(--muted); font-family:var(--mono);
-            min-height:34px; display:flex; align-items:center; }
+            min-height:34px; display:flex; align-items:center; gap:10px; }
   .status.ok  { color:var(--ok);  border-color:rgba(46,204,113,.4); }
   .status.err { color:var(--err); border-color:rgba(255,92,92,.4); }
   .status.warn{ color:var(--warn);border-color:rgba(255,180,40,.4); }
@@ -80,13 +89,36 @@
   .key-status.set { color:var(--ok); }
   .result-error { color:var(--err); font-size:12px; font-family:var(--mono);
                   margin-top:8px; white-space:pre-wrap; word-break:break-word; }
+  .stored-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+                padding:8px 10px; background:var(--panel-2);
+                border:1px solid var(--border); border-radius:8px;
+                font-size:13px; }
+  .stored-row .dot { color:var(--ok); font-weight:700; }
+  .update-result { font-family:var(--mono); font-size:12px;
+                   padding:8px 10px; border-radius:8px; margin-top:10px;
+                   background:var(--panel-2); border:1px solid var(--border); }
+  .update-result.ok  { color:var(--ok);  border-color:rgba(46,204,113,.4); }
+  .update-result.err { color:var(--err); border-color:rgba(255,92,92,.4); }
+  /* Spinner */
+  .btn-spinner {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    opacity: .85;
+    animation: spin .65s linear infinite;
+    flex-shrink: 0;
+  }
+  .btn-spinner.hidden { display: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
 
 <header>
   <h1>tikJsonToB2 &rarr; b2_cloud</h1>
-  <div class="sub">transform &middot; preview &middot; upsert</div>
+  <div class="sub">transform &middot; upsert &middot; update</div>
 </header>
 
 <main>
@@ -94,23 +126,36 @@
   <!-- 1. API key + health -->
   <section class="panel">
     <h2>1. API key</h2>
-    <div class="field">
-      <label for="apiKeyInput">X-API-Key</label>
-      <input id="apiKeyInput" type="password" placeholder="paste your X-API-Key" autocomplete="off">
+
+    <div id="keyFormArea">
+      <div class="field">
+        <label for="apiKeyInput">X-API-Key</label>
+        <input id="apiKeyInput" type="password" placeholder="paste your X-API-Key" autocomplete="off">
+      </div>
+      <div class="row">
+        <button id="btnSaveKey" class="secondary">Save key</button>
+      </div>
     </div>
-    <div class="row" style="margin-top:10px;">
-      <button id="btnSaveKey" class="secondary">Save key</button>
-      <button id="btnClearKey" class="secondary">Forget key</button>
+
+    <div id="keyStoredArea" class="hidden">
+      <div class="stored-row">
+        <span class="dot">&#10003;</span>
+        <span>API key stored</span>
+        <button id="btnChangeKey" class="secondary">Change</button>
+        <button id="btnForgetKey" class="secondary">Forget</button>
+      </div>
     </div>
-    <div id="keyStatus" class="key-status">no key stored</div>
+
     <div class="row" style="margin-top:10px;">
-      <button id="btnHealth" class="secondary" disabled>Test DB connection</button>
-      <span id="healthSpinner" class="muted hidden">checking…</span>
+      <button id="btnHealth" class="secondary" disabled>
+        Test DB connection
+        <span id="spinnerHealth" class="btn-spinner hidden"></span>
+      </button>
     </div>
     <div id="healthOut" class="key-status hidden" style="margin-top:6px;"></div>
   </section>
 
-  <!-- 2. Input -->
+  <!-- 2. File load -->
   <section class="panel">
     <h2>2. Load JSON file</h2>
     <div id="fileBanner" class="file-banner hidden">
@@ -119,18 +164,32 @@
       <button id="btnRemoveFile" class="secondary">Remove</button>
     </div>
     <div class="row" style="margin-top:10px;">
-      <label class="file-btn">
+      <label class="file-btn" id="fileBtnLabel">
         Load JSON file
         <input id="fileInput" type="file" accept=".json,application/json,text/plain">
       </label>
-      <button id="btnTransform" disabled>Transform</button>
       <button id="btnClearAll" class="secondary">Clear all</button>
     </div>
   </section>
 
-  <!-- 3. Preview -->
+  <!-- 3. Transform (JSON only — no SQL) -->
+  <section class="panel">
+    <h2>3. Transform (JSON only)</h2>
+    <div class="row">
+      <button id="btnTransform" disabled>
+        Transform JSON
+        <span id="spinnerTransform" class="btn-spinner hidden"></span>
+      </button>
+    </div>
+    <div class="muted" style="margin-top:8px;">
+      Reads the loaded file, parses it, sorts posts by Likes, and produces rows in memory.
+      Does not touch the database.
+    </div>
+  </section>
+
+  <!-- 4. Transform result -->
   <section class="panel hidden" id="summaryPanel">
-    <h2>3. Transform result</h2>
+    <h2>4. Transform result</h2>
     <div class="stat-grid">
       <div class="stat"><div class="k">user_id</div><div class="v" id="statUserId">—</div></div>
       <div class="stat"><div class="k">Total rows</div><div class="v" id="statTotal">—</div></div>
@@ -139,20 +198,33 @@
   </section>
 
   <section class="panel hidden" id="firstPanel">
-    <h2>rows[0] — first transformed b2_cloud row</h2>
+    <h2>rows[0] — first transformed row</h2>
     <pre id="firstOut" class="muted">—</pre>
     <div class="row" style="margin-top:10px;">
       <button id="btnCopyFirst" class="secondary">Copy rows[0]</button>
     </div>
   </section>
 
-  <!-- 4. Upsert -->
+  <!-- 5. Upsert operations -->
   <section class="panel hidden" id="upsertPanel">
-    <h2>4. Upsert to b2_cloud</h2>
+    <h2>5. Upsert operations</h2>
+
+    <h3>Bulk</h3>
     <div class="row">
-      <button id="btnUpsert">Upsert all rows</button>
-      <span id="upsertSpinner" class="muted hidden">working…</span>
+      <button id="btnUpsertAll">
+        Upsert all rows
+        <span id="spinnerUpsertAll" class="btn-spinner hidden"></span>
+      </button>
     </div>
+
+    <h3>Single</h3>
+    <div class="row">
+      <button id="btnUpsertOne" class="secondary">
+        Upsert rows[0]
+        <span id="spinnerUpsertOne" class="btn-spinner hidden"></span>
+      </button>
+    </div>
+
     <div id="upsertResult" class="hidden" style="margin-top:12px;">
       <div class="stat-grid">
         <div class="stat"><div class="k">Submitted</div><div class="v" id="rSubmitted">—</div></div>
@@ -164,7 +236,42 @@
     </div>
   </section>
 
-  <!-- Status -->
+  <!-- 6. Update operations -->
+  <section class="panel hidden" id="updatePanel">
+    <h2>6. Update operations (by file_key)</h2>
+
+    <div class="field">
+      <label for="updateFileKey">file_key</label>
+      <input id="updateFileKey" type="text" placeholder="e.g. jfrnegery_20241227231506">
+    </div>
+
+    <h3>Single field</h3>
+    <div class="row">
+      <select id="updateColumn">
+        <option value="likes">likes</option>
+        <option value="WhoCanView">WhoCanView</option>
+        <option value="video_cdn">video_cdn</option>
+        <option value="image_cdn">image_cdn</option>
+      </select>
+      <input id="updateValue" type="text" placeholder="new value" style="flex:1; min-width:200px; max-width:none;">
+      <button id="btnUpdateField" class="secondary">
+        Update field
+        <span id="spinnerUpdateField" class="btn-spinner hidden"></span>
+      </button>
+    </div>
+
+    <h3>Patch (multiple columns)</h3>
+    <textarea id="updatePatch" placeholder='{ "likes": 52000, "WhoCanView": "Everyone" }'></textarea>
+    <div class="row" style="margin-top:8px;">
+      <button id="btnUpdatePatch" class="secondary">
+        Update patch
+        <span id="spinnerUpdatePatch" class="btn-spinner hidden"></span>
+      </button>
+    </div>
+
+    <div id="updateOut" class="update-result hidden"></div>
+  </section>
+
   <div id="status" class="status">Idle.</div>
 
 </main>
@@ -424,46 +531,70 @@ window.b2CloudUpsert = b2CloudUpsert;
 
   const $ = id => document.getElementById(id);
 
-  const API_SQL_URL    = '/api/sql';
-  const API_HEALTH_URL = '/api/health';
+  const apiBase        = 'https://b2cloud-ten.vercel.app';
+  const API_SQL_URL    = apiBase + '/api/sql';
+  const API_HEALTH_URL = apiBase + '/api/health';
   const KEY_STORE      = 'b2_api_key';
 
-  const apiKeyInput   = $('apiKeyInput');
-  const keyStatus     = $('keyStatus');
-  const btnSaveKey    = $('btnSaveKey');
-  const btnClearKey   = $('btnClearKey');
-  const btnHealth     = $('btnHealth');
-  const healthSpinner = $('healthSpinner');
-  const healthOut     = $('healthOut');
-  const fileInput     = $('fileInput');
-  const fileBanner    = $('fileBanner');
-  const fileNameEl    = $('fileName');
-  const fileSizeEl    = $('fileSize');
-  const btnRemoveF    = $('btnRemoveFile');
-  const btnTransform  = $('btnTransform');
-  const btnClearAll   = $('btnClearAll');
-  const summaryPanel  = $('summaryPanel');
-  const firstPanel    = $('firstPanel');
-  const upsertPanel   = $('upsertPanel');
-  const firstOut      = $('firstOut');
-  const statUserId    = $('statUserId');
-  const statTotal     = $('statTotal');
-  const statSkipped   = $('statSkipped');
-  const btnCopyFirst  = $('btnCopyFirst');
-  const btnUpsert     = $('btnUpsert');
-  const upsertSpinner = $('upsertSpinner');
-  const upsertResult  = $('upsertResult');
-  const rSubmitted    = $('rSubmitted');
-  const rChanges      = $('rChanges');
-  const rSkipped      = $('rSkipped');
-  const rTotal        = $('rTotal');
-  const upsertErrors  = $('upsertErrors');
-  const statusEl      = $('status');
+  /* element refs */
+  const apiKeyInput    = $('apiKeyInput');
+  const keyFormArea    = $('keyFormArea');
+  const keyStoredArea  = $('keyStoredArea');
+  const btnSaveKey     = $('btnSaveKey');
+  const btnChangeKey   = $('btnChangeKey');
+  const btnForgetKey   = $('btnForgetKey');
+  const btnHealth      = $('btnHealth');
+  const healthOut      = $('healthOut');
+  const fileInput      = $('fileInput');
+  const fileBtnLabel   = $('fileBtnLabel');
+  const fileBanner     = $('fileBanner');
+  const fileNameEl     = $('fileName');
+  const fileSizeEl     = $('fileSize');
+  const btnRemoveF     = $('btnRemoveFile');
+  const btnTransform   = $('btnTransform');
+  const btnClearAll    = $('btnClearAll');
+  const summaryPanel   = $('summaryPanel');
+  const firstPanel     = $('firstPanel');
+  const upsertPanel    = $('upsertPanel');
+  const updatePanel    = $('updatePanel');
+  const firstOut       = $('firstOut');
+  const statUserId     = $('statUserId');
+  const statTotal      = $('statTotal');
+  const statSkipped    = $('statSkipped');
+  const btnCopyFirst   = $('btnCopyFirst');
+  const btnUpsertAll   = $('btnUpsertAll');
+  const btnUpsertOne   = $('btnUpsertOne');
+  const upsertResult   = $('upsertResult');
+  const rSubmitted     = $('rSubmitted');
+  const rChanges       = $('rChanges');
+  const rSkipped       = $('rSkipped');
+  const rTotal         = $('rTotal');
+  const upsertErrors   = $('upsertErrors');
+  const updateFileKey  = $('updateFileKey');
+  const updateColumn   = $('updateColumn');
+  const updateValue    = $('updateValue');
+  const updatePatch    = $('updatePatch');
+  const btnUpdateField = $('btnUpdateField');
+  const btnUpdatePatch = $('btnUpdatePatch');
+  const updateOut      = $('updateOut');
+  const statusEl       = $('status');
 
-  let loadedFileText = null;
-  let rows           = null;
-  let currentUserId  = null;
-  let working        = false;
+  /* spinners */
+  const spinners = {
+    transform:   $('spinnerTransform'),
+    upsertAll:   $('spinnerUpsertAll'),
+    upsertOne:   $('spinnerUpsertOne'),
+    updateField: $('spinnerUpdateField'),
+    updatePatch: $('spinnerUpdatePatch'),
+    health:      $('spinnerHealth'),
+  };
+
+  /* state */
+  let loadedFile    = null;
+  let rows          = null;
+  let currentUserId = null;
+  let working       = false;
+  let currentOp     = null;
 
   /* ---------- API key ---------- */
 
@@ -474,17 +605,11 @@ window.b2CloudUpsert = b2CloudUpsert;
     try { k ? localStorage.setItem(KEY_STORE, k) : localStorage.removeItem(KEY_STORE); }
     catch {}
   }
-  function refreshKeyStatus() {
-    const k = getApiKey();
-    if (k) {
-      keyStatus.textContent = 'stored: ' + '•'.repeat(Math.min(k.length, 24));
-      keyStatus.classList.add('set');
-    } else {
-      keyStatus.textContent = 'no key stored';
-      keyStatus.classList.remove('set');
-    }
-    refreshUpsertButton();
-    refreshHealthButton();
+  function refreshKeyUI() {
+    const has = !!getApiKey();
+    keyFormArea.classList.toggle('hidden', has);
+    keyStoredArea.classList.toggle('hidden', !has);
+    refreshUi();
   }
 
   btnSaveKey.addEventListener('click', () => {
@@ -492,14 +617,20 @@ window.b2CloudUpsert = b2CloudUpsert;
     if (!k) { setStatus('Paste a key first.', 'err'); return; }
     setApiKey(k);
     apiKeyInput.value = '';
-    refreshKeyStatus();
+    refreshKeyUI();
     setStatus('API key saved to localStorage.', 'ok');
   });
 
-  btnClearKey.addEventListener('click', () => {
+  btnChangeKey.addEventListener('click', () => {
+    keyFormArea.classList.remove('hidden');
+    keyStoredArea.classList.add('hidden');
+    apiKeyInput.focus();
+  });
+
+  btnForgetKey.addEventListener('click', () => {
     setApiKey('');
     apiKeyInput.value = '';
-    refreshKeyStatus();
+    refreshKeyUI();
     setStatus('API key removed.', '');
   });
 
@@ -523,7 +654,7 @@ window.b2CloudUpsert = b2CloudUpsert;
     return res.json();
   }
 
-  /* ---------- UI helpers ---------- */
+  /* ---------- UI state ---------- */
 
   function setStatus(msg, kind) {
     statusEl.textContent = msg;
@@ -532,22 +663,44 @@ window.b2CloudUpsert = b2CloudUpsert;
   function pretty(o) {
     try { return JSON.stringify(o, null, 2); } catch { return String(o); }
   }
-  function refreshTransformButton() {
-    btnTransform.disabled = working || !loadedFileText;
+
+  function setWorking(on, op) {
+    working   = !!on;
+    currentOp = on ? (op || 'other') : null;
+    refreshUi();
   }
-  function refreshUpsertButton() {
-    const can = !working && Array.isArray(rows) && rows.length > 0 && !!getApiKey();
-    btnUpsert.disabled = !can;
-  }
-  function refreshHealthButton() {
-    btnHealth.disabled = working || !getApiKey();
-  }
-  function setWorking(v) {
-    working = v;
-    refreshTransformButton();
-    refreshUpsertButton();
-    refreshHealthButton();
-    upsertSpinner.classList.toggle('hidden', !v);
+
+  function refreshUi() {
+    const hasKey  = !!getApiKey();
+    const hasFile = !!loadedFile;
+    const hasRows = Array.isArray(rows) && rows.length > 0;
+    const busy    = working;
+
+    /* buttons */
+    btnSaveKey.disabled     = busy;
+    btnChangeKey.disabled   = busy;
+    btnForgetKey.disabled   = busy;
+    btnHealth.disabled      = busy || !hasKey;
+    btnRemoveF.disabled     = busy;
+    btnClearAll.disabled    = busy;
+    btnCopyFirst.disabled   = busy || !hasRows;
+    btnTransform.disabled   = busy || !hasFile;
+    btnUpsertAll.disabled   = busy || !hasRows || !hasKey;
+    btnUpsertOne.disabled   = busy || !hasRows || !hasKey;
+    btnUpdateField.disabled = busy || !hasKey;
+    btnUpdatePatch.disabled = busy || !hasKey;
+
+    /* file label */
+    fileBtnLabel.style.pointerEvents = busy ? 'none' : '';
+    fileBtnLabel.style.opacity       = busy ? '0.5'  : '';
+
+    /* spinners */
+    spinners.transform.classList.toggle('hidden',   currentOp !== 'transform');
+    spinners.upsertAll.classList.toggle('hidden',   currentOp !== 'upsertAll');
+    spinners.upsertOne.classList.toggle('hidden',   currentOp !== 'upsertOne');
+    spinners.updateField.classList.toggle('hidden', currentOp !== 'updateField');
+    spinners.updatePatch.classList.toggle('hidden', currentOp !== 'updatePatch');
+    spinners.health.classList.toggle('hidden',      currentOp !== 'health');
   }
 
   function resetOutputs() {
@@ -555,48 +708,43 @@ window.b2CloudUpsert = b2CloudUpsert;
     summaryPanel.classList.add('hidden');
     firstPanel.classList.add('hidden');
     upsertPanel.classList.add('hidden');
+    updatePanel.classList.add('hidden');
     upsertResult.classList.add('hidden');
     upsertErrors.classList.add('hidden');
     upsertErrors.textContent = '';
+    updateOut.classList.add('hidden');
+    updateOut.textContent = '';
     statUserId.textContent = '—';
     statTotal.textContent  = '—';
     statSkipped.textContent = '—';
     firstOut.textContent = '—';
     firstOut.classList.add('muted');
-    btnCopyFirst.disabled = true;
-    refreshUpsertButton();
+    refreshUi();
   }
 
   function refreshFileBanner() {
-    if (!loadedFileText) {
-      fileBanner.classList.add('hidden');
-    } else {
-      fileBanner.classList.remove('hidden');
-    }
-    refreshTransformButton();
+    if (!loadedFile) fileBanner.classList.add('hidden');
+    else             fileBanner.classList.remove('hidden');
+    refreshUi();
   }
 
   /* ---------- file load ---------- */
 
-  fileInput.addEventListener('change', async e => {
+  fileInput.addEventListener('change', e => {
     const f = e.target.files && e.target.files[0];
     e.target.value = '';
     if (!f) return;
-    try {
-      const text = await f.text();
-      loadedFileText = text;
-      fileNameEl.textContent = f.name;
-      fileSizeEl.textContent = `(${f.size.toLocaleString()} bytes)`;
-      refreshFileBanner();
-      resetOutputs();
-      setStatus(`Loaded "${f.name}". Click Transform.`, 'ok');
-    } catch (err) {
-      setStatus('File read error: ' + err.message, 'err');
-    }
+
+    loadedFile = f;
+    fileNameEl.textContent = f.name;
+    fileSizeEl.textContent = `(${f.size.toLocaleString()} bytes)`;
+    refreshFileBanner();
+    resetOutputs();
+    setStatus(`Loaded "${f.name}". Click Transform JSON.`, 'ok');
   });
 
   btnRemoveF.addEventListener('click', () => {
-    loadedFileText = null;
+    loadedFile = null;
     fileNameEl.textContent = '';
     fileSizeEl.textContent = '';
     refreshFileBanner();
@@ -605,7 +753,7 @@ window.b2CloudUpsert = b2CloudUpsert;
   });
 
   btnClearAll.addEventListener('click', () => {
-    loadedFileText = null;
+    loadedFile = null;
     fileNameEl.textContent = '';
     fileSizeEl.textContent = '';
     refreshFileBanner();
@@ -613,30 +761,25 @@ window.b2CloudUpsert = b2CloudUpsert;
     setStatus('Cleared.', '');
   });
 
-  /* ---------- health check ---------- */
+  /* ---------- health ---------- */
 
   btnHealth.addEventListener('click', async () => {
     const key = getApiKey();
     if (!key) { setStatus('Save an API key first.', 'err'); return; }
 
-    btnHealth.disabled = true;
-    healthSpinner.classList.remove('hidden');
+    setWorking(true, 'health');
     healthOut.classList.add('hidden');
     healthOut.textContent = '';
 
     try {
+      setStatus('Checking database…', '');
       const res = await fetch(API_HEALTH_URL, {
         method: 'GET',
         headers: { 'X-API-Key': key },
       });
-
       let data = {};
       try { data = await res.json(); } catch {}
-
-      if (!res.ok) {
-        const msg = data.error || `HTTP ${res.status}`;
-        throw new Error(msg);
-      }
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
 
       healthOut.textContent =
         `OK  ·  db=${data.db}  ·  table=${data.table}  ·  ` +
@@ -650,21 +793,31 @@ window.b2CloudUpsert = b2CloudUpsert;
       healthOut.style.color = 'var(--err)';
       setStatus('Health check failed: ' + err.message, 'err');
     } finally {
-      healthSpinner.classList.add('hidden');
-      refreshHealthButton();
+      setWorking(false);
     }
   });
 
-  /* ---------- transform ---------- */
+  /* ---------- transform (JSON only) ---------- */
 
-  btnTransform.addEventListener('click', () => {
-    if (!loadedFileText) return;
+  btnTransform.addEventListener('click', async () => {
+    if (!loadedFile || working) return;
+
+    setWorking(true, 'transform');
+    upsertResult.classList.add('hidden');
+    upsertErrors.classList.add('hidden');
+    updateOut.classList.add('hidden');
+
     try {
-      const doc = JSON.parse(loadedFileText);
+      setStatus('Reading file…', '');
+      const text = await loadedFile.text();
 
+      setStatus('Parsing JSON…', '');
+      const doc = JSON.parse(text);
+
+      setStatus('Extracting rows…', '');
       const out = tikJsonToB2.transform(doc);
 
-      rows = out;
+      rows          = out;
       currentUserId = rows.length ? rows[0].user_id : null;
 
       statUserId.textContent  = currentUserId ?? '—';
@@ -675,22 +828,24 @@ window.b2CloudUpsert = b2CloudUpsert;
       if (rows.length === 0) {
         firstOut.textContent = 'No rows produced.';
         firstOut.classList.add('muted');
-        btnCopyFirst.disabled = true;
       } else {
         firstOut.textContent = pretty(rows[0]);
         firstOut.classList.remove('muted');
-        btnCopyFirst.disabled = false;
       }
       firstPanel.classList.remove('hidden');
       upsertPanel.classList.remove('hidden');
-      upsertResult.classList.add('hidden');
-      upsertErrors.classList.add('hidden');
+      updatePanel.classList.remove('hidden');
 
-      refreshUpsertButton();
-      setStatus(`Transformed ${rows.length} row(s). Ready to upsert.`, 'ok');
+      if (rows.length > 0 && !updateFileKey.value) {
+        updateFileKey.value = rows[0].file_key || '';
+      }
+
+      setStatus(`Transformed ${rows.length} row(s). Upsert/update buttons ready.`, 'ok');
     } catch (err) {
       resetOutputs();
       setStatus('Transform error: ' + err.message, 'err');
+    } finally {
+      setWorking(false);
     }
   });
 
@@ -704,13 +859,12 @@ window.b2CloudUpsert = b2CloudUpsert;
     }
   });
 
-  /* ---------- upsert ---------- */
+  /* ---------- upsert: all rows ---------- */
 
-  btnUpsert.addEventListener('click', async () => {
-    if (!Array.isArray(rows) || rows.length === 0) return;
-    if (working) return;
+  btnUpsertAll.addEventListener('click', async () => {
+    if (!Array.isArray(rows) || rows.length === 0 || working) return;
 
-    setWorking(true);
+    setWorking(true, 'upsertAll');
     upsertResult.classList.add('hidden');
     upsertErrors.classList.add('hidden');
     upsertErrors.textContent = '';
@@ -720,11 +874,10 @@ window.b2CloudUpsert = b2CloudUpsert;
     try {
       r = await b2CloudUpsert.upsertMany(query, rows);
     } catch (err) {
+      setStatus('Upsert all failed: ' + err.message, 'err');
       setWorking(false);
-      setStatus('Upsert failed: ' + err.message, 'err');
       return;
     }
-
     setWorking(false);
 
     rSubmitted.textContent = String(r.submitted ?? '—');
@@ -734,25 +887,159 @@ window.b2CloudUpsert = b2CloudUpsert;
     upsertResult.classList.remove('hidden');
 
     if (r.ok) {
-      setStatus(`Upsert complete: ${r.submitted}/${r.total} submitted, ` +
+      setStatus(`Upsert all complete: ${r.submitted}/${r.total} submitted, ` +
                 `${r.changes} row change(s), ${r.skipped} skipped.`, 'ok');
     } else {
       const errs = (r.errors || []).map(e =>
         '  • ' + (e.file_key || '(no key)') + ': ' + (e.error && e.error.message || e.error)
       );
       upsertErrors.textContent =
-        `Upsert finished with ${r.errors.length} error(s):\n` + errs.join('\n');
+        `Upsert all finished with ${r.errors.length} error(s):\n` + errs.join('\n');
       upsertErrors.classList.remove('hidden');
-      setStatus(`Upsert finished with ${r.errors.length} error(s). See details below.`, 'err');
+      setStatus(`Upsert all finished with ${r.errors.length} error(s).`, 'err');
     }
   });
 
+  /* ---------- upsert: rows[0] ---------- */
+
+  btnUpsertOne.addEventListener('click', async () => {
+    if (!Array.isArray(rows) || rows.length === 0 || working) return;
+
+    const row = rows[0];
+    setWorking(true, 'upsertOne');
+    upsertResult.classList.add('hidden');
+    upsertErrors.classList.add('hidden');
+    upsertErrors.textContent = '';
+    setStatus(`Upserting rows[0] (file_key=${row.file_key})…`, '');
+
+    let r;
+    try {
+      r = await b2CloudUpsert.upsertOne(query, row);
+    } catch (err) {
+      setStatus('Upsert rows[0] failed: ' + err.message, 'err');
+      setWorking(false);
+      return;
+    }
+    setWorking(false);
+
+    if (r.ok) {
+      rSubmitted.textContent = '1';
+      rChanges.textContent   = (typeof r.changes === 'number') ? String(r.changes) : 'n/a';
+      rSkipped.textContent   = '0';
+      rTotal.textContent     = '1';
+      upsertResult.classList.remove('hidden');
+      setStatus(`Upserted rows[0]: ${row.file_key} (changes: ${r.changes ?? 'n/a'})`, 'ok');
+    } else {
+      upsertErrors.textContent = 'Upsert rows[0] failed: ' +
+        (r.error && r.error.message || r.error);
+      upsertErrors.classList.remove('hidden');
+      upsertResult.classList.remove('hidden');
+      setStatus('Upsert rows[0] failed.', 'err');
+    }
+  });
+
+  /* ---------- update: single field ---------- */
+
+  btnUpdateField.addEventListener('click', async () => {
+    if (working) return;
+    const fileKey = updateFileKey.value.trim();
+    const column  = updateColumn.value;
+    let   value   = updateValue.value;
+
+    if (!fileKey) { setStatus('Enter a file_key first.', 'err'); return; }
+    if (!value)   { setStatus('Enter a value.', 'err'); return; }
+
+    if (column === 'likes') {
+      const n = Number(value);
+      if (!Number.isFinite(n)) { setStatus('likes must be a number.', 'err'); return; }
+      value = n;
+    }
+
+    setWorking(true, 'updateField');
+    updateOut.classList.add('hidden');
+    updateOut.textContent = '';
+    setStatus(`Updating ${column} on ${fileKey}…`, '');
+
+    let r;
+    try {
+      r = await b2CloudUpsert.updateField(query, fileKey, column, value);
+    } catch (err) {
+      setWorking(false);
+      showUpdateOut('Update field failed: ' + err.message, false);
+      setStatus('Update field failed.', 'err');
+      return;
+    }
+    setWorking(false);
+
+    if (r.ok) {
+      showUpdateOut(
+        `OK · ${column} updated on ${fileKey} · changes=${r.changes ?? 'n/a'}`, true);
+      setStatus(`Update field complete (changes: ${r.changes ?? 'n/a'}).`, 'ok');
+    } else {
+      showUpdateOut('Update field failed: ' +
+        (r.error && r.error.message || r.error), false);
+      setStatus('Update field failed.', 'err');
+    }
+  });
+
+  /* ---------- update: patch ---------- */
+
+  btnUpdatePatch.addEventListener('click', async () => {
+    if (working) return;
+    const fileKey = updateFileKey.value.trim();
+    const raw     = updatePatch.value.trim();
+
+    if (!fileKey) { setStatus('Enter a file_key first.', 'err'); return; }
+    if (!raw)     { setStatus('Enter a JSON patch.', 'err'); return; }
+
+    let patch;
+    try {
+      patch = JSON.parse(raw);
+    } catch (e) {
+      setStatus('Patch is not valid JSON: ' + e.message, 'err');
+      return;
+    }
+
+    setWorking(true, 'updatePatch');
+    updateOut.classList.add('hidden');
+    updateOut.textContent = '';
+    setStatus(`Updating patch on ${fileKey}…`, '');
+
+    let r;
+    try {
+      r = await b2CloudUpsert.updateOne(query, fileKey, patch);
+    } catch (err) {
+      setWorking(false);
+      showUpdateOut('Update patch failed: ' + err.message, false);
+      setStatus('Update patch failed.', 'err');
+      return;
+    }
+    setWorking(false);
+
+    if (r.ok) {
+      const cols = Object.keys(patch).join(', ');
+      showUpdateOut(
+        `OK · patch on ${fileKey} (${cols}) · changes=${r.changes ?? 'n/a'}`, true);
+      setStatus(`Update patch complete (changes: ${r.changes ?? 'n/a'}).`, 'ok');
+    } else {
+      showUpdateOut('Update patch failed: ' +
+        (r.error && r.error.message || r.error), false);
+      setStatus('Update patch failed.', 'err');
+    }
+  });
+
+  function showUpdateOut(msg, ok) {
+    updateOut.textContent = msg;
+    updateOut.classList.remove('hidden');
+    updateOut.classList.toggle('ok',  !!ok);
+    updateOut.classList.toggle('err', !ok);
+  }
+
   /* ---------- boot ---------- */
 
-  refreshKeyStatus();
+  refreshKeyUI();
   refreshFileBanner();
   resetOutputs();
-  refreshHealthButton();
 })();
 </script>
 
