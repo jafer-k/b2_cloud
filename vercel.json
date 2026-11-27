@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/cdn-to-b2.js": {
+      "maxDuration": 60
+    }
+  }
+}
