@@ -68,11 +68,43 @@ function resolveUrl(key, req) {
 }
 
 /**
- * Sets b2_cloud.status for a given file_key.
- * Uses only columns that exist regardless of whether the
- * video_blob_key / image_blob_key migration has been applied.
- * Returns { updated: boolean, changes: number|null }.
+ * Definitive expiry check.
+ *  - `x-expires` / `expire` are absolute Unix timestamps → we can block on them.
+ *  - `l=` (video-my.tiktokv.com) is generation time, NOT expiry → do NOT block.
+ *  - Unknown scheme → do NOT block.
  */
+function definitiveExpiryMs(url) {
+  try {
+    const u = new URL(url);
+    const x = Number(u.searchParams.get('x-expires') || 0);
+    if (x > 0) return x * 1000;
+    const e = Number(u.searchParams.get('expire')    || 0);
+    if (e > 0) return e * 1000;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Update only the image columns (used when video fails but image succeeds). */
+async function persistImage(fileKey, imageKey, imageUrl) {
+  if (!imageKey) return false;
+  try {
+    await db.execute({
+      sql: `UPDATE "b2_cloud"
+               SET "image_blob_key" = COALESCE(?, "image_blob_key"),
+                   "image_url"      = COALESCE(?, "image_url")
+             WHERE "file_key"       = ?`,
+      args: [imageKey, imageUrl, fileKey],
+    });
+    return true;
+  } catch (e) {
+    console.error('image persist failed:', e.message);
+    return false;
+  }
+}
+
+/** Update only status (used as a last resort). */
 async function setStatus(fileKey, value) {
   try {
     const result = await db.execute({
@@ -90,15 +122,50 @@ async function setStatus(fileKey, value) {
 }
 
 async function uploadFromUrl({ url, key, contentType }) {
-  const ctl = new AbortController();
+  const expMs = definitiveExpiryMs(url);
+  if (expMs && expMs < Date.now()) {
+    throw new Error(
+      'source URL expired at ' + new Date(expMs).toISOString() +
+      ' — re-scrape to get a fresh URL'
+    );
+  }
+
+  const ctl   = new AbortController();
   const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
   try {
     const res = await fetch(url, {
       signal:   ctl.signal,
       redirect: 'follow',
-      headers:  { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*' },
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+          'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+          'Chrome/131.0.0.0 Safari/537.36',
+        'Accept':          '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer':         'https://www.tiktok.com/',
+        'Origin':          'https://www.tiktok.com',
+      },
     });
-    if (!res.ok) throw new Error(`upstream HTTP ${res.status}`);
+
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const txt = await res.text();
+        detail = txt.replace(/\s+/g, ' ').trim().slice(0, 200);
+      } catch {}
+
+      if (res.status === 403) {
+        throw new Error(
+          'upstream HTTP 403 (TikTok rejected — usually expired URL; ' +
+          're-scrape to refresh the source URL)' +
+          (detail ? ' · body: ' + detail : '')
+        );
+      }
+      throw new Error(
+        `upstream HTTP ${res.status}` + (detail ? ' · body: ' + detail : '')
+      );
+    }
 
     const headerLen = Number(res.headers.get('content-length')) || 0;
     if (headerLen && headerLen > MAX_BYTES) {
@@ -172,7 +239,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ success: false, error: 'B2_BUCKET_NAME not configured' });
   }
   if (!PUBLIC_BASE_URL) {
-    console.warn('[cdn-to-b2] PUBLIC_BASE_URL not set — falling back to request host. Set it in production so stored URLs are stable across deployments and previews.');
+    console.warn('[cdn-to-b2] PUBLIC_BASE_URL not set — falling back to request host.');
   }
 
   let body = req.body;
@@ -201,46 +268,56 @@ export default async function handler(req, res) {
   if (!fileKey)
     return res.status(400).json({ success: false, error: 'file_key required' });
 
-  // Source image on the TikTok CDN (mirrors the image_cdn column).
   const imageCdn = typeof body.image_cdn === 'string' ? body.image_cdn : '';
 
   const videoKey = `videos/${safeSegment(fileKey)}.mp4`;
   const nowMs    = Date.now();
 
-  /* -------- 1. upload video -------- */
-
-  let videoResult;
+  /* -------- 1. upload video (errors captured, not thrown) -------- */
+  let videoResult = null;
+  let videoError  = null;
   try {
     videoResult = await uploadFromUrl({ url, key: videoKey, contentType: 'video/mp4' });
   } catch (e) {
-    const errMsg = e.message || 'unknown error';
+    videoError = e;
+  }
 
-    // best-effort: still upload the image so it can be reused if the user retries
-    const imageKey = await uploadImage(imageCdn, fileKey);
+  /* -------- 2. upload image (best-effort, ALWAYS attempted) --------
+   *  Even when the video failed. Image has its own expiry pre-check
+   *  (definitiveExpiryMs) — an expired image URL fails fast.
+   */
+  const imageKey = await uploadImage(imageCdn, fileKey);
+  const imageUrl = resolveUrl(imageKey, req);
 
-    // record status='fail'
+  /* -------- 3a. video failed → persist image, mark fail -------- */
+  if (videoError) {
+    const errMsg = videoError.message || 'unknown error';
+
+    let imagePersisted = false;
+    if (imageKey) {
+      // Persist the image BEFORE flipping status='fail'.
+      imagePersisted = await persistImage(fileKey, imageKey, imageUrl);
+    }
+
     const st = await setStatus(fileKey, 'fail');
 
     return res.status(502).json({
-      success: false,
-      error:   errMsg,
-      file_key: fileKey,
+      success:         false,
+      error:           errMsg,
+      file_key:        fileKey,
       imageKey,
-      status: 'fail',
+      imageUrl,
+      imagePersisted,
+      videoKey:        null,
+      videoUrl:        null,
+      status:          'fail',
+      partial:         !!imageKey,     // true if the image was salvaged
       dbStatusUpdated: st.updated,
     });
   }
 
-  /* -------- 2. upload image (best-effort) -------- */
-
-  const imageKey = await uploadImage(imageCdn, fileKey);
-
-  /* -------- 3. build STABLE resolve URLs (never expire) -------- */
-
-  const videoUrl    = resolveUrl(videoKey, req);
-  const imageUrlRes = resolveUrl(imageKey, req);
-
-  /* -------- 4. persist keys + resolve URLs + status='ok' -------- */
+  /* -------- 3b. video succeeded → persist everything -------- */
+  const videoUrl = resolveUrl(videoKey, req);
 
   try {
     const result = await db.execute({
@@ -269,45 +346,48 @@ export default async function handler(req, res) {
       : (typeof result.changes === 'number' ? result.changes : undefined);
 
     if (changes === 0) {
-      // Video is in B2, but the row doesn't exist in b2_cloud.
-      // Nothing to mark ok — surface it.
       return res.status(409).json({
         success: false,
         error:   'file_key not found in b2_cloud',
         file_key: fileKey,
-        status: 'unknown',
+        status:  'unknown',
         dbStatusUpdated: false,
       });
     }
 
     return res.status(200).json({
-  success: true,
-  file_key: fileKey,
-  videoKey,
-  imageKey,
-  videoUrl,
-  imageUrl,
-  bytes: videoResult.bytes,
-  status: 'ok',
-  dbStatusUpdated: true,
-});
-  } catch (e) {
-    // The video (+ image) are already in B2. The DB write failed
-    // (e.g. migration not run, transient Turso error). Fall back
-    // to a minimal status='fail' update that only touches columns
-    // guaranteed to exist.
-    console.error('success update failed:', e.message);
-    const st = await setStatus(fileKey, 'fail');
-
-    return res.status(500).json({
-      success: false,
-      error:   e.message,
+      success:  true,
       file_key: fileKey,
       videoKey,
       imageKey,
-      status: 'fail',
+      videoUrl,
+      imageUrl,
+      bytes:    videoResult.bytes,
+      status:   'ok',
+      dbStatusUpdated: true,
+      partial:  false,
+    });
+  } catch (e) {
+    console.error('success update failed:', e.message);
+
+    // Video + image already in B2. UPDATE failed (e.g. migration).
+    // Salvage the image, then flip to fail.
+    let imagePersisted = false;
+    if (imageKey) {
+      imagePersisted = await persistImage(fileKey, imageKey, imageUrl);
+    }
+    const st = await setStatus(fileKey, 'fail');
+
+    return res.status(500).json({
+      success:         false,
+      error:           e.message,
+      file_key:        fileKey,
+      videoKey,
+      imageKey,
+      imagePersisted,
+      status:          'fail',
+      partial:         !!imageKey,
       dbStatusUpdated: st.updated,
-      dbStatusError:   st.error || null,
     });
   }
 }
