@@ -414,6 +414,7 @@ fileInput.addEventListener('change', async (e) => {
       image_url:   r.image_url   ?? null,
     }));
     setRows(list, f.name);
+    if (!dbUserId.value && list[0]?.user_id) dbUserId.value = list[0].user_id;
     setStatus(`Loaded ${list.length} row(s) from "${f.name}".`, 'ok');
   } catch (err) {
     setStatus('File error: ' + err.message, 'err');
