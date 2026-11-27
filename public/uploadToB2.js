@@ -1,14 +1,21 @@
-async function uploadToB2({ video_cdn, file_key, image_cdn, apiKey }) {
-  const response = await fetch("https://b2cloud-ten.vercel.app/api/cdn-to-b2", {
+const CDN_API_URL = "https://b2-cloud.vercel.app/api/cdn-to-b2";
+
+async function uploadToB2({ url, file_key, image_cdn, apiKey }) {
+  const response = await fetch(CDN_API_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "X-API-Key": apiKey,
     },
-    body: JSON.stringify({ video_cdn, file_key, image_cdn }),
+    body: JSON.stringify({
+      url,
+      file_key,
+      image_cdn,
+    }),
   });
   
   const result = await response.json();
+  
   if (!response.ok) {
     throw new Error(result.error || `Upload failed for ${file_key}`);
   }
@@ -28,7 +35,7 @@ async function uploadAll(rows, apiKey) {
       }
       
       const result = await uploadToB2({
-        video_cdn: row.video_cdn,
+        url: row.video_cdn,
         file_key: row.file_key,
         image_cdn: row.image_cdn,
         apiKey,
@@ -51,7 +58,13 @@ async function uploadAll(rows, apiKey) {
   return results;
 }
 
-// API key entered by the user in the frontend.
 const apiKey = document.querySelector("#api-key").value;
+const sqlResponse = await fetch("https://b2-cloud.vercel.app/api/sql", {
+  headers: { "X-API-Key": apiKey },
+});
+if (!sqlResponse.ok) {
+  throw new Error(`Unable to fetch rows: ${sqlResponse.status}`);
+}
+const { rows } = await sqlResponse.json();
 const results = await uploadAll(rows, apiKey);
 console.log(results);
