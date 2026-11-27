@@ -1,0 +1,1202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>tikJsonToB2 → b2_cloud</title>
+<style>
+/* ============================================================
+   1. TOKENS
+   ============================================================ */
+:root {
+  --bg-0:#061214; --bg-1:#0a1f24; --bg-2:#0e2a30; --bg-3:#123840;
+  --border:#1d4e58; --teal:#14f0c8; --teal-dim:#0fb39a;
+  --teal-glow:rgba(20,240,200,.55);
+  --text:#d8f4ef; --text-dim:#7fb3ab; --text-faint:#4f7d78;
+  --code-bg:#04191c;
+  --accent-warn:#ffb347; --accent-error:#ff5c5c;
+}
+
+/* ============================================================
+   2. BASE
+   ============================================================ */
+* { box-sizing:border-box; margin:0; padding:0; }
+html, body { height:100%; overflow:hidden; }
+body {
+  font-family: ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  font-size:12px; line-height:1.5;
+  background:var(--bg-0); color:var(--text);
+  display:flex; flex-direction:column;
+  -webkit-font-smoothing:antialiased;
+}
+h3 {
+  font-size:10px; color:var(--teal-dim);
+  margin:14px 0 6px; text-transform:uppercase; letter-spacing:.08em;
+}
+
+/* ============================================================
+   3. LAYOUT
+   ============================================================ */
+header {
+  flex-shrink:0; padding:10px 14px;
+  background:linear-gradient(180deg,var(--bg-3),var(--bg-1));
+  border-bottom:1px solid var(--border);
+  position:relative; z-index:10;
+  display:flex; align-items:center; gap:10px;
+  box-shadow:
+    0 1px 0 rgba(0,0,0,.9),
+    0 8px 16px -2px rgba(0,0,0,.9),
+    0 18px 32px -6px rgba(0,0,0,.75),
+    0 6px 24px -4px rgba(20,240,200,.22);
+}
+header h1 {
+  font-size:13px; font-weight:700; letter-spacing:.02em;
+  color:var(--teal); text-shadow:0 0 12px var(--teal-glow);
+}
+header .sub {
+  font-size:9px; color:var(--text-faint);
+  text-transform:uppercase; letter-spacing:.1em;
+}
+main {
+  flex:1; min-height:0; overflow:hidden;
+  display:flex; flex-direction:column; position:relative;
+  padding:6px; background:var(--bg-0);
+  box-shadow:
+    inset 0 2px 4px rgba(0,0,0,.9),
+    inset 0 8px 20px -6px rgba(0,0,0,.85),
+    inset 0 -2px 4px rgba(0,0,0,.9),
+    inset 0 -8px 20px -6px rgba(0,0,0,.85),
+    inset 1px 0 0 rgba(0,0,0,.6),
+    inset -1px 0 0 rgba(0,0,0,.6);
+}
+.panes { flex:1; min-height:0; position:relative; }
+.pane {
+  position:absolute; inset:0; overflow:hidden;
+  padding:6px 6px 16px; display:none;
+  flex-direction:column; height:100%;
+  scrollbar-width:thin; scrollbar-color:var(--teal-dim) transparent;
+}
+.pane.active { display:flex; overflow-y:auto; }
+.pane::-webkit-scrollbar { width:6px; }
+.pane::-webkit-scrollbar-track { background:transparent; }
+.pane::-webkit-scrollbar-thumb { background:var(--teal-dim); border-radius:3px; }
+footer {
+  flex-shrink:0; padding:8px 12px;
+  background:linear-gradient(180deg,var(--bg-1),var(--bg-3));
+  border-top:1px solid var(--border);
+  font-size:9px; color:var(--text-faint);
+  text-transform:uppercase; letter-spacing:.1em;
+  display:flex; justify-content:space-between;
+  position:relative; z-index:10;
+  box-shadow:
+    0 -1px 0 rgba(0,0,0,.9),
+    0 -8px 16px -2px rgba(0,0,0,.9),
+    0 -18px 32px -6px rgba(0,0,0,.75),
+    0 -6px 24px -4px rgba(20,240,200,.22);
+}
+footer .dot { color:var(--teal); text-shadow:0 0 8px var(--teal-glow); }
+
+.flex-1 { flex:1; min-height:0; overflow:hidden; display:flex; flex-direction:column; }
+.row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.row-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:10px; }
+.row-33 { display:grid; gap:8px; grid-auto-flow:row; margin-bottom:6px;
+          grid-template-columns:120px 160px 60px; }
+
+/* ============================================================
+   5. COMPONENTS
+   ============================================================ */
+.field { margin-bottom:10px; }
+.field label {
+  display:block; font-size:9px; text-transform:uppercase;
+  letter-spacing:.1em; color:var(--text-faint);
+  margin-bottom:4px; font-weight:700;
+}
+.field input, .field select, .field textarea {
+  width:100%; font-family:inherit; font-size:11.5px;
+  padding:8px 10px; border-radius:5px;
+  border:1px solid var(--border); background:var(--code-bg);
+  color:var(--text); outline:none;
+  transition:border-color .15s ease, box-shadow .15s ease;
+}
+.field textarea { min-height:60px; resize:vertical; line-height:1.5; }
+.field select { cursor:pointer; }
+.field input::placeholder, .field textarea::placeholder { color:var(--text-faint); }
+.field input:focus, .field select:focus, .field textarea:focus {
+  border-color:var(--teal-dim); box-shadow:0 0 0 2px rgba(20,240,200,.15);
+}
+.field input[readonly] { color:var(--text-dim); cursor:default; }
+.field input[readonly]:focus { border-color:var(--border); box-shadow:none; }
+
+.btn {
+  width:100%; font-family:inherit; font-size:11px;
+  font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+  padding:10px 14px; border-radius:5px;
+  border:1px solid var(--teal); background:var(--teal); color:var(--bg-0);
+  cursor:pointer; transition:all .18s ease;
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  box-shadow:0 0 10px var(--teal-glow), 0 0 22px -4px var(--teal-glow);
+  margin-top:6px;
+}
+.btn:hover:not(:disabled) {
+  box-shadow:0 0 14px var(--teal-glow), 0 0 28px -2px var(--teal-glow);
+}
+.btn:active:not(:disabled) { transform:translateY(1px); }
+.btn:disabled {
+  background:var(--bg-3); border-color:var(--border);
+  color:var(--text-faint); cursor:not-allowed; box-shadow:none;
+}
+
+.btn.compact {
+  width:auto; margin-top:0; padding:4px 9px;
+  font-size:9px; font-weight:700; letter-spacing:.08em; border-radius:4px;
+  background:var(--bg-3); border:1px solid var(--border); color:var(--teal-dim);
+  box-shadow:none;
+}
+.btn.compact:hover:not(:disabled) {
+  color:var(--teal); border-color:var(--teal);
+  box-shadow:0 0 8px -1px var(--teal-glow);
+}
+.btn.compact:disabled { background:var(--bg-3); border-color:var(--border);
+                        color:var(--text-faint); box-shadow:none; }
+.btn.compact.danger { background:transparent; border-color:var(--accent-error);
+                      color:var(--accent-error); }
+.btn.compact.danger:hover:not(:disabled) {
+  background:rgba(255,92,92,.12); box-shadow:0 0 8px -1px rgba(255,92,92,.55);
+}
+
+.page-link {
+  font-family:inherit; font-size:9px; font-weight:700;
+  letter-spacing:.08em; text-transform:uppercase;
+  padding:4px 9px; border-radius:4px;
+  border:1px solid var(--border); background:var(--bg-3); color:var(--teal-dim);
+  text-decoration:none; cursor:pointer; transition:all .15s ease;
+  white-space:nowrap;
+}
+.page-link:hover:not(:disabled) {
+  color:var(--teal); border-color:var(--teal);
+  box-shadow:0 0 8px -1px var(--teal-glow);
+}
+.page-link:disabled { opacity:.5; cursor:not-allowed; }
+.page-nav { margin-left:auto; display:flex; gap:6px; align-items:center; }
+
+.status {
+  display:inline-block; font-size:9px; letter-spacing:.1em;
+  text-transform:uppercase; padding:2px 7px; border-radius:3px;
+  border:1px solid var(--border); background:var(--bg-3);
+  color:var(--text-faint); font-weight:700;
+}
+.status.ready  { color:var(--teal-dim); border-color:var(--teal-dim); }
+.status.busy   { color:var(--accent-warn); border-color:var(--accent-warn); }
+.status.done   { color:var(--teal); border-color:var(--teal);
+                 background:rgba(20,240,200,.1); }
+.status.failed { color:var(--accent-error); border-color:var(--accent-error);
+                 background:rgba(255,92,92,.1); }
+
+/* ---- file surface (from template) ---- */
+.file-field { position:relative; }
+.file-surface {
+  position:relative; display:flex; align-items:center; width:100%;
+  font-family:inherit; font-size:11.5px; padding:8px 10px;
+  border-radius:5px; border:1px solid var(--border);
+  background:var(--code-bg); color:var(--text-dim);
+  cursor:pointer; transition:border-color .15s ease, box-shadow .15s ease;
+  overflow:hidden;
+}
+.file-surface:hover { border-color:var(--teal-dim); }
+.file-surface:focus-within {
+  border-color:var(--teal-dim); box-shadow:0 0 0 2px rgba(20,240,200,.15);
+}
+.file-surface .file-name {
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.file-surface.has-file .file-name { color:var(--teal); }
+.file-surface input[type="file"] {
+  position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%;
+}
+
+/* ---- progress (from template) ---- */
+.progress {
+  margin-top:16px; background:var(--code-bg); border:1px solid var(--border);
+  border-radius:5px; overflow:hidden; width:100%;
+}
+.progress-container {
+  width:100%; background:var(--bg-2); overflow:hidden; margin-top:6px;
+}
+.progress-bar {
+  width:0%; padding:2px 0; overflow:hidden;
+  background:var(--teal); transition:width .15s ease;
+}
+.progress-logger {
+  display:flex; justify-content:space-between; align-items:center;
+  padding:5px 10px; background:var(--bg-2); border-top:1px solid var(--border);
+  font-size:9px; text-transform:uppercase; letter-spacing:.1em;
+  color:var(--text-faint); overflow:hidden; margin-top:6px; width:100%;
+}
+#progCount, #progTotal, #progPercent { color:var(--teal); }
+
+/* ---- log (from template) ---- */
+.log {
+  margin-top:16px; background:var(--code-bg);
+  border:1px solid var(--border); border-radius:5px; overflow:hidden;
+}
+.log .log-header {
+  display:flex; justify-content:space-between; align-items:center;
+  padding:5px 10px; background:var(--bg-2); border-bottom:1px solid var(--border);
+  font-size:9px; text-transform:uppercase; letter-spacing:.1em;
+  color:var(--text-faint);
+}
+.log .log-body {
+  padding:10px; font-size:10.5px; line-height:1.55; color:var(--text-dim);
+  max-height:240px; overflow-y:auto; white-space:pre-wrap; word-break:break-word;
+  scrollbar-width:thin; scrollbar-color:var(--teal-dim) transparent;
+}
+.log .log-body::-webkit-scrollbar { width:5px; }
+.log .log-body::-webkit-scrollbar-thumb {
+  background:var(--teal-dim); border-radius:3px;
+}
+.log .line { display:block; margin-bottom:2px; }
+.log .line.ok   { color:var(--teal); }
+.log .line.err  { color:var(--accent-error); }
+.log .line.info { color:var(--text-dim); }
+.log .line.wait { color:var(--accent-warn); }
+#log { min-height:100px; max-height:none; }
+
+/* ---- preview pre block ---- */
+.preview-wrap {
+  background:var(--code-bg); border:1px solid var(--border);
+  border-radius:5px; margin-top:4px;
+  max-height:220px; overflow-y:auto;
+  scrollbar-width:thin; scrollbar-color:var(--teal-dim) transparent;
+}
+.preview-wrap::-webkit-scrollbar { width:5px; }
+.preview-wrap::-webkit-scrollbar-thumb {
+  background:var(--teal-dim); border-radius:3px;
+}
+.preview-wrap pre {
+  margin:0; padding:8px 10px;
+  font-family:inherit; font-size:10.5px;
+  color:var(--text-dim); white-space:pre-wrap; word-break:break-word;
+  line-height:1.5;
+}
+
+/* ---- spinner ---- */
+.spin {
+  display:none; width:10px; height:10px;
+  border:1.5px solid currentColor; border-top-color:transparent;
+  border-radius:50%; animation:spin .6s linear infinite;
+  flex-shrink:0;
+}
+.spin.active { display:inline-block; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.btn:disabled .spin { border-color:var(--teal-dim); border-top-color:transparent; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>tikJsonToB2</h1>
+  <span class="sub">transform · upsert · update</span>
+  <nav class="page-nav">
+    <span id="key-badge" class="status">no key</span>
+    <button id="btn-health" class="page-link" disabled>Health</button>
+  </nav>
+</header>
+
+<main>
+  <div class="panes">
+    <section class="pane active">
+
+      <!-- Key: input mode -->
+      <div id="key-input-bar" style="display:none;margin-bottom:6px;">
+        <div style="display:flex;gap:8px;align-items:flex-end;">
+          <div class="field" style="flex:1;margin-bottom:0;">
+            <label for="api-key">X-API-Key</label>
+            <input type="password" id="api-key" placeholder="paste your key" autocomplete="off">
+          </div>
+          <button class="btn compact" id="btn-save-key" style="width:auto;">Save</button>
+          <button class="btn compact" id="btn-cancel-key" style="width:auto;display:none;">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Key: stored mode -->
+      <div id="key-set-bar" style="display:none;margin-bottom:6px;align-items:center;gap:8px;">
+        <span class="status done">✓ Key stored</span>
+        <button class="btn compact" id="btn-change-key" style="width:auto;">Change</button>
+        <button class="btn compact danger" id="btn-forget-key" style="width:auto;">Forget</button>
+      </div>
+
+      <!-- Row 33: file, doc, count -->
+      <div class="row-33">
+        <div class="field file-field">
+          <label for="file-input">Import JSON</label>
+          <div class="file-surface" id="file-surface">
+            <span class="file-name" id="file-name">Choose file…</span>
+            <input type="file" id="file-input" accept=".json,.txt,application/json,text/plain">
+          </div>
+        </div>
+        <div class="field">
+          <label>Document</label>
+          <input type="text" id="doc-title" value="VideoList.json" readonly>
+        </div>
+        <div class="field">
+          <label>Count</label>
+          <input type="text" id="record-count" value="" readonly>
+        </div>
+      </div>
+
+      <!-- Row 3: transform, upsert all, upsert one -->
+      <div class="row-3">
+        <button class="btn compact" id="btn-transform" disabled>
+          <span class="spin" id="spin-transform"></span>
+          Transform
+        </button>
+        <button class="btn compact" id="btn-upsert-all" disabled>
+          <span class="spin" id="spin-upsert-all"></span>
+          Upsert all
+        </button>
+        <button class="btn compact" id="btn-upsert-one" disabled>
+          <span class="spin" id="spin-upsert-one"></span>
+          Upsert rows[0]
+        </button>
+      </div>
+
+      <!-- Row 3: update field, update patch, clear -->
+      <div class="row-3">
+        <button class="btn compact" id="btn-update-field" disabled>
+          <span class="spin" id="spin-update-field"></span>
+          Update field
+        </button>
+        <button class="btn compact" id="btn-update-patch" disabled>
+          <span class="spin" id="spin-update-patch"></span>
+          Update patch
+        </button>
+        <button class="btn compact danger" id="btn-clear" disabled>Clear</button>
+      </div>
+
+      <!-- Update panel -->
+      <div id="update-panel" style="display:none;">
+        <div style="display:grid;grid-template-columns:2fr 1fr 2fr;gap:8px;margin-bottom:6px;">
+          <div class="field" style="margin-bottom:0;">
+            <label for="upd-file-key">file_key</label>
+            <input type="text" id="upd-file-key" placeholder="jfrnegery_...">
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <label for="upd-column">Column</label>
+            <select id="upd-column">
+              <option value="likes">likes</option>
+              <option value="WhoCanView">WhoCanView</option>
+              <option value="video_cdn">video_cdn</option>
+              <option value="image_cdn">image_cdn</option>
+            </select>
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <label for="upd-value">Value</label>
+            <input type="text" id="upd-value" placeholder="new value">
+          </div>
+        </div>
+        <div class="field" style="margin-bottom:6px;">
+          <label for="upd-patch">Patch (JSON)</label>
+          <textarea id="upd-patch" placeholder='{ "likes": 52000, "WhoCanView": "Everyone" }'></textarea>
+        </div>
+      </div>
+
+      <!-- Summary -->
+      <div class="row-3" id="summary-row" style="display:none;">
+        <div class="field" style="margin-bottom:0;">
+          <label>user_id</label>
+          <input type="text" id="stat-user-id" readonly>
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label>Total</label>
+          <input type="text" id="stat-total" readonly>
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label>Skipped</label>
+          <input type="text" id="stat-skipped" readonly>
+        </div>
+      </div>
+
+      <!-- Preview rows[0] -->
+      <div id="preview-section" style="display:none;">
+        <h3>rows[0]</h3>
+        <div class="preview-wrap">
+          <pre id="preview">—</pre>
+        </div>
+      </div>
+
+      <!-- Progress -->
+      <div class="progress">
+        <div class="progress-container">
+          <div id="progBar" class="progress-bar"></div>
+        </div>
+        <div class="progress-logger">
+          <div><span id="progCount">0</span>/<span id="progTotal">0</span></div>
+          <span id="progPercent">0%</span>
+          <span class="status" id="progStatus">Idle</span>
+        </div>
+      </div>
+
+      <!-- Log -->
+      <h3>Log</h3>
+      <div class="log flex-1">
+        <div class="log-header">
+          <span>Activity</span>
+          <span class="status" id="status">Idle</span>
+        </div>
+        <div class="log-body" id="log"></div>
+      </div>
+
+    </section>
+  </div>
+</main>
+
+<footer>
+  <span><span class="dot">●</span> tikJsonToB2</span>
+  <span>transform · upsert · update</span>
+</footer>
+
+<!-- ============================================================
+     LIBRARY: tikJsonToB2  (unchanged)
+     ============================================================ -->
+<script>
+const tikJsonToB2 = (function () {
+  'use strict';
+  const USER_ID_PATH = ['Profile And Settings', 'Profile Info', 'ProfileMap', 'userName'];
+
+  function parseJSON(input) {
+    if (input === null || input === undefined) throw new Error('input is null or undefined');
+    if (typeof input === 'object') return input;
+    if (typeof input !== 'string') throw new Error('input must be a JSON string or object');
+    const t = input.trim();
+    if (!t) throw new Error('input is empty');
+    return JSON.parse(t);
+  }
+  function extractVideoList(input) {
+    const p = parseJSON(input);
+    if (Array.isArray(p)) return p;
+    const l = p && p.Post && p.Post.Posts && p.Post.Posts.VideoList;
+    if (Array.isArray(l)) return l;
+    throw new Error('"Post.Posts.VideoList" not found or not an array');
+  }
+  function sortByLikes(input) {
+    return extractVideoList(input).slice().sort(
+      (a,b) => (Number(b.Likes)||0) - (Number(a.Likes)||0)
+    );
+  }
+  function getUserId(input) {
+    let cur; try { cur = parseJSON(input); } catch { return null; }
+    for (const key of USER_ID_PATH) {
+      if (cur === null || cur === undefined) return null;
+      if (typeof cur !== 'object' || Array.isArray(cur)) return null;
+      if (!Object.prototype.hasOwnProperty.call(cur, key)) return null;
+      cur = cur[key];
+    }
+    return (typeof cur === 'string' || typeof cur === 'number') ? String(cur) : null;
+  }
+  function dateToKeyStamp(dateStr) {
+    if (typeof dateStr !== 'string') return null;
+    const digits = dateStr.replace(/\D/g,'');
+    return /^\d{14}$/.test(digits) ? digits : null;
+  }
+  function buildFileKey(userId, dateStr) {
+    if (typeof userId !== 'string' || !userId) return null;
+    const stamp = dateToKeyStamp(dateStr);
+    return stamp === null ? null : `${userId}_${stamp}`;
+  }
+  function transformPost(post, userId) {
+    return {
+      user_id:     userId,
+      file_key:    buildFileKey(userId, post.Date),
+      WhoCanView:  post.WhoCanView  ?? null,
+      likes:       Number(post.Likes) || 0,
+      date_posted: post.Date        ?? null,
+      video_cdn:   post.Link        ?? null,
+      image_cdn:   post.CoverImage  ?? null,
+    };
+  }
+  function transform(input, options) {
+    const opts = options || {}; const strict = !!opts.strict;
+    const userId = getUserId(input);
+    if (!userId) throw new Error('user_id not found — expected at ' + JSON.stringify(USER_ID_PATH));
+    const posts = sortByLikes(input);
+    const rows = [];
+    for (const post of posts) {
+      const row = transformPost(post, userId);
+      if (row.file_key === null) {
+        if (strict) throw new Error('Invalid Date: ' + JSON.stringify(post.Date));
+        continue;
+      }
+      rows.push(row);
+    }
+    return rows;
+  }
+  return { transform };
+})();
+window.tikJsonToB2 = tikJsonToB2;
+</script>
+
+<!-- ============================================================
+     LIBRARY: b2CloudUpsert  (with onProgress)
+     ============================================================ -->
+<script>
+const b2CloudUpsert = (function () {
+  'use strict';
+  const INSERT_COLS = ['user_id','file_key','WhoCanView','likes','date_posted','video_cdn','image_cdn'];
+  const UPDATABLE_COLS = ['likes','WhoCanView','video_cdn','image_cdn'];
+
+  function insertParams(row) {
+    return [
+      row.user_id ?? null, row.file_key, row.WhoCanView ?? null,
+      Number(row.likes)||0, row.date_posted ?? null,
+      row.video_cdn ?? null, row.image_cdn ?? null,
+    ];
+  }
+  function buildInsert(rowCount) {
+    const rowPh = '(' + INSERT_COLS.map(() => '?').join(', ') + ')';
+    const values = Array(rowCount).fill(rowPh).join(', ');
+    const cols = INSERT_COLS.map(c => `"${c}"`).join(', ');
+    return `INSERT INTO "b2_cloud" (${cols}) VALUES ${values}
+ON CONFLICT("file_key") DO NOTHING;`;
+  }
+  function checkQuery(query) { return typeof query === 'function'; }
+  function reportChanges(result) {
+    return (result && typeof result.changes === 'number') ? result.changes : undefined;
+  }
+  function validatePatch(patch) {
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch))
+      return { ok:false, reason:'patch must be a plain object' };
+    const keys = Object.keys(patch);
+    if (keys.length === 0) return { ok:false, reason:'patch is empty' };
+    const bad = keys.filter(k => !UPDATABLE_COLS.includes(k));
+    if (bad.length) return { ok:false, reason:'invalid column(s): ' + bad.join(', ') };
+    return { ok:true, keys };
+  }
+
+  async function upsertOne(query, row) {
+    if (!checkQuery(query))
+      return { ok:false, file_key:row && row.file_key, error:new Error('query must be a function') };
+    if (!row || !row.file_key)
+      return { ok:false, file_key:row && row.file_key, error:new Error('row has no file_key') };
+    try {
+      const result = await query(buildInsert(1), insertParams(row));
+      return { ok:true, file_key:row.file_key, changes:reportChanges(result), result };
+    } catch (error) {
+      return { ok:false, file_key:row.file_key, error };
+    }
+  }
+
+  async function upsertMany(query, rows, options) {
+    if (!checkQuery(query))
+      return { ok:false, submitted:0, changes:0, skipped:0,
+               total: Array.isArray(rows) ? rows.length : 0,
+               errors:[{ error:new Error('query must be a function') }] };
+
+    const opts      = options || {};
+    const chunkSize = Math.max(1, Math.min(opts.chunkSize || 100, 200));
+    const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
+
+    const list    = Array.isArray(rows) ? rows : [];
+    const valid   = list.filter(r => r && r.file_key);
+    const skipped = list.length - valid.length;
+
+    let submitted = 0, changes = 0;
+    const errors = [];
+
+    if (onProgress) onProgress(0, valid.length);
+
+    for (let i = 0; i < valid.length; i += chunkSize) {
+      const chunk = valid.slice(i, i + chunkSize);
+      try {
+        const result = await query(buildInsert(chunk.length), chunk.flatMap(insertParams));
+        submitted += chunk.length;
+        const c = reportChanges(result);
+        if (typeof c === 'number') changes += c;
+        if (onProgress) onProgress(submitted, valid.length);
+      } catch {
+        for (const row of chunk) {
+          const r = await upsertOne(query, row);
+          if (r.ok) {
+            submitted++;
+            if (typeof r.changes === 'number') changes += r.changes;
+          } else {
+            errors.push({ file_key: row.file_key, error: r.error });
+          }
+          if (onProgress) onProgress(submitted, valid.length);
+        }
+      }
+    }
+    return { ok: errors.length === 0, submitted, changes, skipped, total:list.length, errors };
+  }
+
+  async function updateOne(query, fileKey, patch) {
+    if (!checkQuery(query) || !fileKey)
+      return { ok:false, file_key:fileKey, error:new Error('bad args') };
+    const v = validatePatch(patch);
+    if (!v.ok) return { ok:false, file_key:fileKey, error:new Error(v.reason) };
+    const setClause = v.keys.map(c => `"${c}" = ?`).join(', ');
+    const sql = `UPDATE "b2_cloud" SET ${setClause} WHERE "file_key" = ?`;
+    const params = v.keys.map(c => patch[c]).concat(fileKey);
+    try {
+      const result = await query(sql, params);
+      return { ok:true, file_key:fileKey, changes:reportChanges(result), result };
+    } catch (error) {
+      return { ok:false, file_key:fileKey, error };
+    }
+  }
+
+  async function updateField(query, fileKey, column, value) {
+    if (!checkQuery(query) || !fileKey)
+      return { ok:false, file_key:fileKey, error:new Error('bad args') };
+    if (!UPDATABLE_COLS.includes(column))
+      return { ok:false, file_key:fileKey, error:new Error('invalid column: ' + column) };
+    const sql = `UPDATE "b2_cloud" SET "${column}" = ? WHERE "file_key" = ?`;
+    try {
+      const result = await query(sql, [value, fileKey]);
+      return { ok:true, file_key:fileKey, column, changes:reportChanges(result), result };
+    } catch (error) {
+      return { ok:false, file_key:fileKey, column, error };
+    }
+  }
+
+  return { upsertOne, upsertMany, updateOne, updateField };
+})();
+window.b2CloudUpsert = b2CloudUpsert;
+</script>
+
+<!-- ============================================================
+     UI wiring
+     ============================================================ -->
+<script>
+(function () {
+  'use strict';
+
+  const $ = id => document.getElementById(id);
+
+  const apiBase        = 'https://b2cloud-ten.vercel.app';
+  const API_SQL_URL    = apiBase + '/api/sql';
+  const API_HEALTH_URL = apiBase + '/api/health';
+  const KEY_STORE      = 'b2_api_key';
+
+  /* ---------- element refs ---------- */
+  const apiKeyInput    = $('api-key');
+  const keyInputBar    = $('key-input-bar');
+  const keySetBar      = $('key-set-bar');
+  const btnSaveKey     = $('btn-save-key');
+  const btnCancelKey   = $('btn-cancel-key');
+  const btnChangeKey   = $('btn-change-key');
+  const btnForgetKey   = $('btn-forget-key');
+  const btnHealth      = $('btn-health');
+  const keyBadge       = $('key-badge');
+
+  const fileInput      = $('file-input');
+  const fileSurface    = $('file-surface');
+  const fileNameEl     = $('file-name');
+  const docTitleEl     = $('doc-title');
+  const recordCountEl  = $('record-count');
+
+  const btnTransform   = $('btn-transform');
+  const btnUpsertAll   = $('btn-upsert-all');
+  const btnUpsertOne   = $('btn-upsert-one');
+  const btnUpdateField = $('btn-update-field');
+  const btnUpdatePatch = $('btn-update-patch');
+  const btnClear       = $('btn-clear');
+
+  const updatePanel    = $('update-panel');
+  const updFileKey     = $('upd-file-key');
+  const updColumn      = $('upd-column');
+  const updValue       = $('upd-value');
+  const updPatch       = $('upd-patch');
+
+  const summaryRow     = $('summary-row');
+  const statUserId     = $('stat-user-id');
+  const statTotal      = $('stat-total');
+  const statSkipped    = $('stat-skipped');
+
+  const previewSection = $('preview-section');
+  const previewEl      = $('preview');
+
+  const progBar        = $('progBar');
+  const progCount      = $('progCount');
+  const progTotal      = $('progTotal');
+  const progPercent    = $('progPercent');
+  const progStatus     = $('progStatus');
+  const statusEl       = $('status');
+  const logBody        = $('log');
+
+  const spins = {
+    transform:   $('spin-transform'),
+    upsertAll:   $('spin-upsert-all'),
+    upsertOne:   $('spin-upsert-one'),
+    updateField: $('spin-update-field'),
+    updatePatch: $('spin-update-patch'),
+  };
+
+  /* ---------- state ---------- */
+  let loadedFile   = null;
+  let rows         = null;
+  let working      = false;
+  let currentOp    = null;
+  let changingKey  = false;
+
+  /* ---------- log / status / progress ---------- */
+
+  function logLine(msg, kind) {
+    const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+    const line = document.createElement('span');
+    line.className = 'line ' + (kind || 'info');
+    line.textContent = `[${time}] ${msg}`;
+    logBody.appendChild(line);
+    logBody.scrollTop = logBody.scrollHeight;
+  }
+
+  function setStatus(msg, kind) {
+    statusEl.textContent = msg;
+    statusEl.className = 'status' + (kind ? ' ' + kind : '');
+  }
+
+  function setProgress(count, total, statusText) {
+    const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+    progBar.style.width     = pct + '%';
+    progCount.textContent   = String(count);
+    progTotal.textContent   = String(total);
+    progPercent.textContent = pct + '%';
+    if (statusText !== undefined) progStatus.textContent = statusText;
+  }
+
+  /* ---------- API key ---------- */
+
+  function getApiKey() {
+    try { return localStorage.getItem(KEY_STORE) || ''; } catch { return ''; }
+  }
+  function setApiKey(k) {
+    try { k ? localStorage.setItem(KEY_STORE, k) : localStorage.removeItem(KEY_STORE); }
+    catch {}
+  }
+
+  function refreshKeyUI() {
+    const has = !!getApiKey();
+    const showInput = !has || changingKey;
+
+    keyInputBar.style.display  = showInput ? '' : 'none';
+    keySetBar.style.display    = showInput ? 'none' : 'flex';
+    btnCancelKey.style.display = (changingKey && has) ? '' : 'none';
+
+    keyBadge.textContent = has ? 'key set' : 'no key';
+    keyBadge.className   = 'status' + (has ? ' ready' : '');
+
+    refreshUi();
+  }
+
+  btnSaveKey.addEventListener('click', () => {
+    const k = apiKeyInput.value.trim();
+    if (!k) { logLine('Paste a key first.', 'err'); return; }
+    setApiKey(k);
+    apiKeyInput.value = '';
+    changingKey = false;
+    logLine('API key saved to localStorage.', 'ok');
+    refreshKeyUI();
+  });
+
+  btnCancelKey.addEventListener('click', () => {
+    changingKey = false;
+    apiKeyInput.value = '';
+    refreshKeyUI();
+  });
+
+  btnChangeKey.addEventListener('click', () => {
+    changingKey = true;
+    apiKeyInput.value = '';
+    refreshKeyUI();
+    apiKeyInput.focus();
+  });
+
+  btnForgetKey.addEventListener('click', () => {
+    setApiKey('');
+    changingKey = false;
+    logLine('API key removed.', 'wait');
+    refreshKeyUI();
+  });
+
+  /* ---------- query executor ---------- */
+
+  async function query(sql, params) {
+    const key = getApiKey();
+    if (!key) throw new Error('API key not set');
+
+    const res = await fetch(API_SQL_URL, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+      body:    JSON.stringify({ sql, params }),
+    });
+
+    if (!res.ok) {
+      let msg = 'HTTP ' + res.status;
+      try { const j = await res.json(); if (j && j.error) msg = j.error; } catch {}
+      throw new Error(msg);
+    }
+    return res.json();
+  }
+
+  /* ---------- state / refresh ---------- */
+
+  function pretty(o) {
+    try { return JSON.stringify(o, null, 2); } catch { return String(o); }
+  }
+
+  function setWorking(on, op) {
+    working   = !!on;
+    currentOp = on ? (op || 'other') : null;
+    refreshUi();
+  }
+
+  function refreshUi() {
+    const hasKey  = !!getApiKey();
+    const hasFile = !!loadedFile;
+    const hasRows = Array.isArray(rows) && rows.length > 0;
+    const busy    = working;
+
+    /* key controls */
+    btnSaveKey.disabled     = busy;
+    btnCancelKey.disabled   = busy;
+    btnChangeKey.disabled   = busy;
+    btnForgetKey.disabled   = busy;
+    btnHealth.disabled      = busy || !hasKey;
+
+    /* file / transform */
+    btnClear.disabled       = busy || (!hasFile && !hasRows);
+    btnTransform.disabled   = busy || !hasFile;
+
+    /* upsert — needs rows + key */
+    btnUpsertAll.disabled   = busy || !hasRows || !hasKey;
+    btnUpsertOne.disabled   = busy || !hasRows || !hasKey;
+
+    /* update — needs rows + key.
+       The update inputs only become visible after transform (when
+       hasRows is true), so gate the buttons on the same flag to
+       avoid enabling them with no data. */
+    btnUpdateField.disabled = busy || !hasKey || !hasRows;
+    btnUpdatePatch.disabled = busy || !hasKey || !hasRows;
+
+    /* file surface */
+    fileSurface.style.pointerEvents = busy ? 'none' : '';
+    fileSurface.style.opacity       = busy ? '0.5'  : '';
+
+    /* spinners */
+    for (const k of Object.keys(spins)) {
+      spins[k].classList.toggle('active', currentOp === k);
+    }
+  }
+
+  function resetOutputs() {
+    rows = null;
+
+    summaryRow.style.display     = 'none';
+    previewSection.style.display = 'none';
+    updatePanel.style.display    = 'none';
+
+    statUserId.value    = '';
+    statTotal.value     = '';
+    statSkipped.value   = '';
+    recordCountEl.value = '';
+    previewEl.textContent = '—';
+
+    /* wipe manual update inputs so Clear produces a clean slate */
+    updFileKey.value = '';
+    updValue.value   = '';
+    updPatch.value   = '';
+
+    setProgress(0, 0, 'Idle');
+    refreshUi();
+  }
+
+  function refreshFileBanner() {
+    if (loadedFile) {
+      fileNameEl.textContent = loadedFile.name;
+      fileSurface.classList.add('has-file');
+    } else {
+      fileNameEl.textContent = 'Choose file…';
+      fileSurface.classList.remove('has-file');
+    }
+    refreshUi();
+  }
+
+  /* ---------- file load ---------- */
+
+  fileInput.addEventListener('change', e => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+
+    loadedFile = f;
+    docTitleEl.value = f.name;
+    refreshFileBanner();
+    resetOutputs();
+    logLine(`Loaded "${f.name}" (${f.size.toLocaleString()} bytes). Click Transform.`, 'ok');
+    setStatus('Ready', 'ready');
+  });
+
+  btnClear.addEventListener('click', () => {
+    loadedFile = null;
+    docTitleEl.value = 'VideoList.json';
+    refreshFileBanner();
+    resetOutputs();
+    logLine('Cleared.', 'wait');
+    setStatus('Idle');
+  });
+
+  /* ---------- health ---------- */
+
+  btnHealth.addEventListener('click', async () => {
+    const key = getApiKey();
+    if (!key) { logLine('Save an API key first.', 'err'); return; }
+
+    setWorking(true, 'health');
+    logLine('Checking database…', 'wait');
+    setStatus('Checking…', 'busy');
+
+    try {
+      const res = await fetch(API_HEALTH_URL, {
+        method:  'GET',
+        headers: { 'X-API-Key': key },
+      });
+      let data = {};
+      try { data = await res.json(); } catch {}
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+      logLine(
+        `Health OK · db=${data.db} · table=${data.table} · rowCount=${data.rowCount} · ${data.latencyMs}ms`,
+        'ok'
+      );
+      setStatus('Health OK', 'done');
+    } catch (err) {
+      logLine('Health failed: ' + err.message, 'err');
+      setStatus('Health failed', 'failed');
+    } finally {
+      setWorking(false);
+    }
+  });
+
+  /* ---------- transform ---------- */
+
+  btnTransform.addEventListener('click', async () => {
+    if (!loadedFile || working) return;
+
+    setWorking(true, 'transform');
+    logLine('Reading file…', 'wait');
+    setStatus('Reading…', 'busy');
+
+    try {
+      const text = await loadedFile.text();
+      logLine('Parsing JSON…', 'wait');
+      const doc = JSON.parse(text);
+
+      logLine('Extracting rows…', 'wait');
+      const out = tikJsonToB2.transform(doc);
+
+      rows = out;
+      const userId = rows.length ? rows[0].user_id : null;
+
+      recordCountEl.value = String(rows.length);
+      statUserId.value    = userId ?? '—';
+      statTotal.value     = String(rows.length);
+      statSkipped.value   = '0';
+
+      /* Always show summary + preview */
+      summaryRow.style.display     = '';
+      previewEl.textContent        = rows.length === 0 ? 'No rows produced.' : pretty(rows[0]);
+      previewSection.style.display = '';
+
+      /* Show update panel ONLY when there is a target to update,
+         so visibility and button-enable state stay in sync. */
+      if (rows.length > 0) {
+        updatePanel.style.display = '';
+        if (!updFileKey.value) updFileKey.value = rows[0].file_key || '';
+      } else {
+        updatePanel.style.display = 'none';
+      }
+
+      logLine(`Transformed ${rows.length} row(s).`, 'ok');
+      setStatus('Transformed', 'done');
+    } catch (err) {
+      resetOutputs();
+      logLine('Transform error: ' + err.message, 'err');
+      setStatus('Transform failed', 'failed');
+    } finally {
+      setWorking(false);
+    }
+  });
+
+  /* ---------- upsert all ---------- */
+
+  btnUpsertAll.addEventListener('click', async () => {
+    if (!Array.isArray(rows) || rows.length === 0 || working) return;
+
+    setWorking(true, 'upsertAll');
+    logLine(`Upserting ${rows.length} row(s)…`, 'wait');
+    setStatus('Upserting…', 'busy');
+    setProgress(0, rows.length, 'Running');
+
+    let r;
+    try {
+      r = await b2CloudUpsert.upsertMany(query, rows, {
+        chunkSize: 100,
+        onProgress: (count, total) => setProgress(count, total, 'Running'),
+      });
+    } catch (err) {
+      logLine('Upsert all failed: ' + err.message, 'err');
+      setStatus('Upsert failed', 'failed');
+      setWorking(false);
+      return;
+    }
+    setWorking(false);
+
+    setProgress(r.submitted, r.total, r.ok ? 'Done' : 'Errors');
+
+    if (r.ok) {
+      logLine(
+        `Upsert all complete: ${r.submitted}/${r.total} submitted, ` +
+        `${r.changes ?? 0} change(s), ${r.skipped} skipped.`,
+        'ok'
+      );
+      setStatus('Upsert done', 'done');
+    } else {
+      for (const e of (r.errors || [])) {
+        logLine(
+          `  • ${e.file_key || '(no key)'}: ` +
+          (e.error && e.error.message || e.error),
+          'err'
+        );
+      }
+      logLine(`Upsert all finished with ${r.errors.length} error(s).`, 'err');
+      setStatus('Upsert errors', 'failed');
+    }
+  });
+
+  /* ---------- upsert one ---------- */
+
+  btnUpsertOne.addEventListener('click', async () => {
+    if (!Array.isArray(rows) || rows.length === 0 || working) return;
+
+    const row = rows[0];
+    setWorking(true, 'upsertOne');
+    logLine(`Upserting rows[0] (file_key=${row.file_key})…`, 'wait');
+    setStatus('Upserting…', 'busy');
+    setProgress(0, 1, 'Running');
+
+    let r;
+    try {
+      r = await b2CloudUpsert.upsertOne(query, row);
+    } catch (err) {
+      logLine('Upsert rows[0] failed: ' + err.message, 'err');
+      setStatus('Upsert failed', 'failed');
+      setWorking(false);
+      return;
+    }
+    setWorking(false);
+
+    if (r.ok) {
+      setProgress(1, 1, 'Done');
+      logLine(`Upserted rows[0]: ${row.file_key} (changes: ${r.changes ?? 'n/a'})`, 'ok');
+      setStatus('Upsert done', 'done');
+    } else {
+      setProgress(0, 1, 'Errors');
+      logLine('Upsert rows[0] failed: ' + (r.error && r.error.message || r.error), 'err');
+      setStatus('Upsert failed', 'failed');
+    }
+  });
+
+  /* ---------- update field ---------- */
+
+  btnUpdateField.addEventListener('click', async () => {
+    if (working) return;
+    const fileKey = updFileKey.value.trim();
+    const column  = updColumn.value;
+    let   value   = updValue.value;
+
+    if (!fileKey) { logLine('Enter a file_key first.', 'err'); return; }
+    if (!value)   { logLine('Enter a value.', 'err'); return; }
+
+    if (column === 'likes') {
+      const n = Number(value);
+      if (!Number.isFinite(n)) { logLine('likes must be a number.', 'err'); return; }
+      value = n;
+    }
+
+    setWorking(true, 'updateField');
+    logLine(`Updating ${column} on ${fileKey}…`, 'wait');
+    setStatus('Updating…', 'busy');
+
+    let r;
+    try {
+      r = await b2CloudUpsert.updateField(query, fileKey, column, value);
+    } catch (err) {
+      setWorking(false);
+      logLine('Update field failed: ' + err.message, 'err');
+      setStatus('Update failed', 'failed');
+      return;
+    }
+    setWorking(false);
+
+    if (r.ok) {
+      logLine(`OK · ${column} updated on ${fileKey} · changes=${r.changes ?? 'n/a'}`, 'ok');
+      setStatus('Update done', 'done');
+    } else {
+      logLine('Update field failed: ' + (r.error && r.error.message || r.error), 'err');
+      setStatus('Update failed', 'failed');
+    }
+  });
+
+  /* ---------- update patch ---------- */
+
+  btnUpdatePatch.addEventListener('click', async () => {
+    if (working) return;
+    const fileKey = updFileKey.value.trim();
+    const raw     = updPatch.value.trim();
+
+    if (!fileKey) { logLine('Enter a file_key first.', 'err'); return; }
+    if (!raw)     { logLine('Enter a JSON patch.', 'err'); return; }
+
+    let patch;
+    try {
+      patch = JSON.parse(raw);
+    } catch (e) {
+      logLine('Patch is not valid JSON: ' + e.message, 'err');
+      return;
+    }
+
+    setWorking(true, 'updatePatch');
+    logLine(`Updating patch on ${fileKey}…`, 'wait');
+    setStatus('Updating…', 'busy');
+
+    let r;
+    try {
+      r = await b2CloudUpsert.updateOne(query, fileKey, patch);
+    } catch (err) {
+      setWorking(false);
+      logLine('Update patch failed: ' + err.message, 'err');
+      setStatus('Update failed', 'failed');
+      return;
+    }
+    setWorking(false);
+
+    if (r.ok) {
+      const cols = Object.keys(patch).join(', ');
+      logLine(`OK · patch on ${fileKey} (${cols}) · changes=${r.changes ?? 'n/a'}`, 'ok');
+      setStatus('Update done', 'done');
+    } else {
+      logLine('Update patch failed: ' + (r.error && r.error.message || r.error), 'err');
+      setStatus('Update failed', 'failed');
+    }
+  });
+
+  /* ---------- boot ---------- */
+
+  refreshKeyUI();
+  refreshFileBanner();
+  resetOutputs();
+  logLine('Ready.', 'info');
+})();
+</script>
+
+</body>
+</html>
