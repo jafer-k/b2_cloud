@@ -6,37 +6,21 @@
 <title>Upload to B2 → cdn-to-b2</title>
 <link href="app.css" rel="stylesheet">
 <style>
-  .tbl-wrap { max-height:520px; overflow:auto; border:1px solid var(--border); border-radius:8px; }
-  .tbl { width:100%; border-collapse:collapse; font-size:12.5px; font-family:var(--mono); }
-  .tbl th, .tbl td { padding:6px 8px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; }
-  .tbl th { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.06em;
-            background:var(--panel-2); position:sticky; top:0; z-index:1; }
-  .tbl tr:hover td { background:rgba(79,140,255,.05); }
-  .rs-badge { font-size:11px; font-weight:700; padding:2px 6px; border-radius:4px; display:inline-block; }
-  .rs-pending   { background:#2a2f3a; color:var(--muted); }
-  .rs-uploading { background:rgba(79,140,255,.2); color:var(--accent); }
-  .rs-ok        { background:rgba(46,204,113,.15); color:var(--ok); }
-  .rs-partial   { background:rgba(255,180,40,.15); color:var(--warn); }
-  .rs-err       { background:rgba(255,92,92,.15); color:var(--err); }
-  .rs-skip      { background:rgba(255,180,40,.15); color:var(--warn); }
   .progress-bar { height:6px; background:var(--panel-2); border-radius:3px; overflow:hidden; }
   .progress-fill { height:100%; background:var(--accent); width:0; transition:width .2s ease; }
-  .log { font-family:var(--mono); font-size:11.5px; max-height:200px; overflow:auto;
+  .log { font-family:var(--mono); font-size:11.5px; max-height:400px; overflow:auto;
          background:var(--panel-2); border:1px solid var(--border); border-radius:8px; padding:8px; }
   .log-line { padding:1px 0; }
   .log-line.err  { color:var(--err); }
   .log-line.ok   { color:var(--ok); }
   .log-line.warn { color:var(--warn); }
-  .cell-ellipsis { max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .tbl input[type="checkbox"] { margin:0; cursor:pointer; }
-  .mini-btn { font-size:10px; padding:2px 6px; margin-left:6px; }
 </style>
 </head>
 <body>
 
 <header>
   <h1>Upload to B2 &rarr; cdn-to-b2</h1>
-  <div class="sub">select rows &middot; upload &middot; track</div>
+  <div class="sub">load rows &middot; upload &middot; copy URLs</div>
 </header>
 
 <main>
@@ -63,25 +47,20 @@
     </div>
   </section>
 
-  <!-- 2. Source rows -->
+  <!-- 2. Load rows -->
   <section class="panel">
-    <h2>2. Source rows</h2>
+    <h2>2. Load rows</h2>
     <div class="row">
       <label class="file-btn" id="fileBtnLabel">
-        Load rows JSON
+        Load JSON file
         <input id="fileInput" type="file" accept=".json,application/json">
       </label>
-      <button id="btnLoadFromDb" class="secondary">Load uploadable from DB</button>
+      <button id="btnLoadFromDb" class="secondary" disabled>Load from DB</button>
       <button id="btnClear" class="secondary">Clear</button>
     </div>
     <div class="field" style="margin-top:10px;">
-      <label for="dbUserId">user_id filter (optional — leave empty for all users)</label>
+      <label for="dbUserId">user_id (DB load — optional, empty = all users)</label>
       <input id="dbUserId" type="text" placeholder="e.g. jfrnegery">
-    </div>
-    <div class="muted" style="margin-top:8px;">
-      JSON must be an array of rows produced by <code>tikJsonToB2.transform</code>,
-      or <code>{ rows: [...] }</code>. Only rows with <code>video_cdn</code>
-      and <code>file_key</code> are uploadable.
     </div>
     <div id="sourceBanner" class="file-banner hidden" style="margin-top:10px;">
       <span class="file-name" id="sourceName"></span>
@@ -89,38 +68,12 @@
     </div>
   </section>
 
-  <!-- 3. Rows table -->
-  <section class="panel hidden" id="rowsPanel">
-    <h2>3. Rows</h2>
-    <div class="row" style="margin-bottom:10px;">
-      <button id="btnSelectAll" class="secondary">Select all</button>
-      <button id="btnSelectNone" class="secondary">Select none</button>
-      <button id="btnSelectUploadable" class="secondary">Select uploadable</button>
-      <span class="muted" id="selSummary"></span>
-    </div>
-    <div class="tbl-wrap">
-      <table class="tbl">
-        <thead>
-          <tr>
-            <th style="width:32px;"><input type="checkbox" id="chkAll"></th>
-            <th>file_key</th>
-            <th>likes</th>
-            <th>video_cdn</th>
-            <th>image_cdn</th>
-            <th>status</th>
-          </tr>
-        </thead>
-        <tbody id="rowsTbody"></tbody>
-      </table>
-    </div>
-  </section>
-
-  <!-- 4. Upload -->
+  <!-- 3. Upload -->
   <section class="panel hidden" id="uploadPanel">
-    <h2>4. Upload</h2>
+    <h2>3. Upload</h2>
     <div class="row" style="margin-bottom:10px;">
       <button id="btnUpload">
-        Upload selected
+        Upload all
         <span id="spinnerUpload" class="btn-spinner hidden"></span>
       </button>
       <button id="btnStop" class="secondary hidden">Stop</button>
@@ -147,54 +100,45 @@
 const $ = id => document.getElementById(id);
 
 const API_BASE   = 'https://b2cloud-ten.vercel.app';
-const UPLOAD_URL = API_BASE + '/api/cdn-to-b2-key';
+const UPLOAD_URL = API_BASE + '/api/cdn-to-b2';
 const SQL_URL    = API_BASE + '/api/sql';
 const KEY_STORE  = 'b2_api_key';
 
 /* elements */
-const apiKeyInput         = $('apiKeyInput');
-const keyFormArea         = $('keyFormArea');
-const keyStoredArea       = $('keyStoredArea');
-const btnSaveKey          = $('btnSaveKey');
-const btnChangeKey        = $('btnChangeKey');
-const btnForgetKey        = $('btnForgetKey');
-const fileBtnLabel        = $('fileBtnLabel');
-const fileInput           = $('fileInput');
-const btnLoadFromDb       = $('btnLoadFromDb');
-const btnClear            = $('btnClear');
-const sourceBanner        = $('sourceBanner');
-const sourceName          = $('sourceName');
-const sourceCount         = $('sourceCount');
-const rowsPanel           = $('rowsPanel');
-const uploadPanel         = $('uploadPanel');
-const rowsTbody           = $('rowsTbody');
-const chkAll              = $('chkAll');
-const btnSelectAll        = $('btnSelectAll');
-const btnSelectNone       = $('btnSelectNone');
-const btnSelectUploadable = $('btnSelectUploadable');
-const selSummary          = $('selSummary');
-const btnUpload           = $('btnUpload');
-const btnStop             = $('btnStop');
-const btnCopyAll          = $('btnCopyAll');
-const spinnerUpload       = $('spinnerUpload');
-const uploadSummary       = $('uploadSummary');
-const progressFill        = $('progressFill');
-const statTotal           = $('statTotal');
-const statDone            = $('statDone');
-const statOk              = $('statOk');
-const statPartial         = $('statPartial');
-const statFail            = $('statFail');
-const statSkip            = $('statSkip');
-const logEl               = $('log');
-const statusEl            = $('status');
-const dbUserId = $('dbUserId');
+const apiKeyInput    = $('apiKeyInput');
+const keyFormArea    = $('keyFormArea');
+const keyStoredArea  = $('keyStoredArea');
+const btnSaveKey     = $('btnSaveKey');
+const btnChangeKey   = $('btnChangeKey');
+const btnForgetKey   = $('btnForgetKey');
+const fileBtnLabel   = $('fileBtnLabel');
+const fileInput      = $('fileInput');
+const btnLoadFromDb  = $('btnLoadFromDb');
+const btnClear       = $('btnClear');
+const dbUserId       = $('dbUserId');
+const sourceBanner   = $('sourceBanner');
+const sourceName     = $('sourceName');
+const sourceCount    = $('sourceCount');
+const uploadPanel    = $('uploadPanel');
+const btnUpload      = $('btnUpload');
+const btnStop        = $('btnStop');
+const btnCopyAll     = $('btnCopyAll');
+const spinnerUpload  = $('spinnerUpload');
+const uploadSummary  = $('uploadSummary');
+const progressFill   = $('progressFill');
+const statTotal      = $('statTotal');
+const statDone       = $('statDone');
+const statOk         = $('statOk');
+const statPartial    = $('statPartial');
+const statFail       = $('statFail');
+const statSkip       = $('statSkip');
+const logEl          = $('log');
+const statusEl       = $('status');
 
 /* state */
 let rows             = [];
-let statusByKey      = new Map();  // file_key -> { state, error }
-let videoUrlByKey    = new Map();  // file_key -> resolve URL
-let imageUrlByKey    = new Map();  // file_key -> resolve URL
-let selected         = new Set();
+let videoUrlByKey    = new Map();
+let imageUrlByKey    = new Map();
 let uploading        = false;
 let stopRequested    = false;
 
@@ -212,7 +156,7 @@ function refreshKeyUI() {
   refreshUi();
 }
 
-/* ---------- status / ui ---------- */
+/* ---------- ui ---------- */
 function setStatus(msg, kind) {
   statusEl.textContent = msg;
   statusEl.className = 'status' + (kind ? ' ' + kind : '');
@@ -222,136 +166,58 @@ function refreshUi() {
   const hasRows = rows.length > 0;
   const hasUrls = videoUrlByKey.size > 0 || imageUrlByKey.size > 0;
 
-  btnLoadFromDb.disabled        = uploading || !hasKey;
-  btnUpload.disabled            = uploading || !hasKey || selected.size === 0;
-  btnSelectAll.disabled         = uploading;
-  btnSelectNone.disabled        = uploading;
-  btnSelectUploadable.disabled  = uploading;
-  btnClear.disabled             = uploading;
-  fileInput.disabled            = uploading;
+  btnLoadFromDb.disabled = uploading || !hasKey;
+  btnUpload.disabled     = uploading || !hasRows;
+  btnClear.disabled      = uploading;
+  fileInput.disabled     = uploading;
   fileBtnLabel.style.pointerEvents = uploading ? 'none' : '';
   fileBtnLabel.style.opacity       = uploading ? '.5'   : '';
   spinnerUpload.classList.toggle('hidden', !uploading);
   btnStop.classList.toggle('hidden', !uploading);
   btnCopyAll.classList.toggle('hidden', uploading || !hasUrls);
-  selSummary.textContent = hasRows ? `${selected.size} of ${rows.length} selected` : '';
 }
 
-/* ---------- helpers ---------- */
 function isUploadable(row) { return !!(row && row.file_key && row.video_cdn); }
-function rowState(row) {
-  return statusByKey.get(row.file_key) ||
-         { state: row.video_url ? 'ok' : (row.status === 'fail' ? 'err' : 'pending') };
+
+function log(msg, kind) {
+  logEl.classList.remove('hidden');
+  const line = document.createElement('div');
+  line.className = 'log-line' + (kind ? ' ' + kind : '');
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
 }
 
-/* ---------- render ---------- */
-function renderRows() {
-  rowsTbody.innerHTML = '';
-  for (const row of rows) {
-    const st = rowState(row);
-    const tr = document.createElement('tr');
-
-    const tdChk = document.createElement('td');
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.checked  = selected.has(row.file_key);
-    cb.disabled = uploading;
-    cb.addEventListener('change', () => {
-      cb.checked ? selected.add(row.file_key) : selected.delete(row.file_key);
-      chkAll.checked = rows.length > 0 && selected.size === rows.length;
-      refreshUi();
-    });
-    tdChk.appendChild(cb);
-
-    const tdKey = document.createElement('td');
-    tdKey.className = 'cell-ellipsis';
-    tdKey.textContent = row.file_key || '(none)';
-    tdKey.title = row.file_key || '';
-
-    const tdLikes = document.createElement('td');
-    tdLikes.textContent = row.likes ?? '—';
-
-    const tdVid = document.createElement('td');
-    tdVid.className = 'cell-ellipsis';
-    tdVid.textContent = row.video_cdn || '—';
-    tdVid.title = row.video_cdn || '';
-
-    const tdImg = document.createElement('td');
-    tdImg.className = 'cell-ellipsis';
-    tdImg.textContent = row.image_cdn || '—';
-    tdImg.title = row.image_cdn || '';
-
-    const tdSt = document.createElement('td');
-    const badge = document.createElement('span');
-    badge.className = 'rs-badge rs-' + st.state;
-    badge.textContent = st.state;
-    if (st.error) badge.title = st.error;
-    tdSt.appendChild(badge);
-
-    const v = videoUrlByKey.get(row.file_key);
-    const i = imageUrlByKey.get(row.file_key);
-    if (v || i) {
-      const cp = document.createElement('button');
-      cp.className = 'secondary mini-btn';
-      cp.textContent = v && i ? 'Copy 2' : (v ? 'Copy video' : 'Copy image');
-      cp.title = [v, i].filter(Boolean).join('\n');
-      cp.addEventListener('click', async () => {
-        const text = [v, i].filter(Boolean).join('\n');
-        try { await navigator.clipboard.writeText(text); cp.textContent = 'Copied!'; setTimeout(() => cp.textContent = v && i ? 'Copy 2' : (v ? 'Copy video' : 'Copy image'), 1200); }
-        catch { window.prompt('Copy URL(s):', text); }
-      });
-      tdSt.appendChild(cp);
-    }
-
-    tr.append(tdChk, tdKey, tdLikes, tdVid, tdImg, tdSt);
-    rowsTbody.appendChild(tr);
-  }
-  chkAll.checked = rows.length > 0 && selected.size === rows.length;
-  refreshUi();
-}
-
+/* ---------- set rows ---------- */
 function setRows(newRows, label) {
-  rows            = newRows;
-  statusByKey     = new Map();
-  videoUrlByKey   = new Map();
-  imageUrlByKey   = new Map();
-  selected        = new Set();
-  sourceName.textContent = label || '';
+  rows           = newRows;
+  videoUrlByKey  = new Map();
+  imageUrlByKey  = new Map();
 
-  /* Pre-fill state from DB truth: video_url set = already uploaded */
+  /* pre-fill URLs from rows that already have them */
   for (const r of rows) {
-    if (!r.file_key) continue;
-    if (r.video_url) {
-      statusByKey.set(r.file_key, { state: 'ok' });
-      videoUrlByKey.set(r.file_key, r.video_url);
-      if (r.image_url) imageUrlByKey.set(r.file_key, r.image_url);
-    } else if (r.status === 'fail') {
-      statusByKey.set(r.file_key, { state: 'err' });
-    }
-  }
-
-  for (const r of rows) {
-    if (isUploadable(r) && rowState(r).state !== 'ok') selected.add(r.file_key);
+    if (r.file_key && r.video_url) videoUrlByKey.set(r.file_key, r.video_url);
+    if (r.file_key && r.image_url) imageUrlByKey.set(r.file_key, r.image_url);
   }
 
   if (rows.length === 0) {
     sourceBanner.classList.add('hidden');
-    rowsPanel.classList.add('hidden');
     uploadPanel.classList.add('hidden');
     refreshUi();
     return;
   }
 
-  sourceCount.textContent = `(${rows.length} row${rows.length === 1 ? '' : 's'})`;
+  const uploadable = rows.filter(isUploadable).length;
+  sourceName.textContent  = label || '';
+  sourceCount.textContent = `(${rows.length} loaded · ${uploadable} uploadable)`;
   sourceBanner.classList.remove('hidden');
-  rowsPanel.classList.remove('hidden');
   uploadPanel.classList.remove('hidden');
   resetStats();
-  renderRows();
+  refreshUi();
 }
 
 function resetStats() {
-  statTotal.textContent   = rows.length;
+  statTotal.textContent   = rows.filter(isUploadable).length;
   statDone.textContent    = 0;
   statOk.textContent      = 0;
   statPartial.textContent = 0;
@@ -361,15 +227,6 @@ function resetStats() {
   uploadSummary.textContent = '';
   logEl.classList.add('hidden');
   logEl.innerHTML = '';
-}
-
-function log(msg, kind) {
-  logEl.classList.remove('hidden');
-  const line = document.createElement('div');
-  line.className = 'log-line' + (kind ? ' ' + kind : '');
-  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-  logEl.appendChild(line);
-  logEl.scrollTop = logEl.scrollHeight;
 }
 
 /* ---------- API key handlers ---------- */
@@ -389,7 +246,7 @@ btnForgetKey.addEventListener('click', () => {
   setStatus('API key removed.', '');
 });
 
-/* ---------- load rows ---------- */
+/* ---------- load: file ---------- */
 fileInput.addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0];
   e.target.value = '';
@@ -413,16 +270,19 @@ fileInput.addEventListener('change', async (e) => {
       video_url:   r.video_url   ?? null,
       image_url:   r.image_url   ?? null,
     }));
-    setRows(list, f.name);
+
     if (!dbUserId.value && list[0]?.user_id) dbUserId.value = list[0].user_id;
+
+    setRows(list, f.name);
     setStatus(`Loaded ${list.length} row(s) from "${f.name}".`, 'ok');
   } catch (err) {
     setStatus('File error: ' + err.message, 'err');
   }
 });
 
+/* ---------- load: DB ---------- */
 btnLoadFromDb.addEventListener('click', async () => {
-  const key     = getApiKey();
+  const key = getApiKey();
   if (!key) { setStatus('Save an API key first.', 'err'); return; }
 
   const userId  = dbUserId.value.trim();
@@ -475,34 +335,17 @@ btnClear.addEventListener('click', () => {
   setStatus('Cleared.', '');
 });
 
-/* ---------- selection ---------- */
-btnSelectAll.addEventListener('click', () => {
-  for (const r of rows) selected.add(r.file_key);
-  renderRows();
-});
-btnSelectNone.addEventListener('click', () => {
-  selected.clear(); renderRows();
-});
-btnSelectUploadable.addEventListener('click', () => {
-  selected.clear();
-  for (const r of rows)
-    if (isUploadable(r) && rowState(r).state !== 'ok') selected.add(r.file_key);
-  renderRows();
-});
-chkAll.addEventListener('change', () => {
-  if (chkAll.checked) for (const r of rows) selected.add(r.file_key);
-  else                selected.clear();
-  renderRows();
-});
-
 /* ---------- copy all ---------- */
 btnCopyAll.addEventListener('click', async () => {
   const lines = [];
-  for (const row of rows) {
-    const v = videoUrlByKey.get(row.file_key);
-    const i = imageUrlByKey.get(row.file_key);
-    if (v) lines.push(`${row.file_key}\t(video)\t${v}`);
-    if (i) lines.push(`${row.file_key}\t(image)\t${i}`);
+  for (const [fk, url] of videoUrlByKey.entries()) {
+    lines.push(`${fk}\t(video)\t${url}`);
+    const img = imageUrlByKey.get(fk);
+    if (img) lines.push(`${fk}\t(image)\t${img}`);
+  }
+  /* orphan images (video failed, image saved) */
+  for (const [fk, url] of imageUrlByKey.entries()) {
+    if (!videoUrlByKey.has(fk)) lines.push(`${fk}\t(image)\t${url}`);
   }
   if (!lines.length) return;
   const text = lines.join('\n');
@@ -550,12 +393,11 @@ btnUpload.addEventListener('click', async () => {
   const key = getApiKey();
   if (!key) { setStatus('Save an API key first.', 'err'); return; }
 
-  const targets = rows.filter(r => selected.has(r.file_key));
-  if (targets.length === 0) { setStatus('No rows selected.', 'err'); return; }
+  const targets = rows.filter(isUploadable);
+  if (targets.length === 0) { setStatus('No uploadable rows loaded.', 'err'); return; }
 
   uploading = true; stopRequested = false;
   resetStats(); refreshUi();
-  logEl.classList.remove('hidden');
 
   const total = targets.length;
   let done = 0, ok = 0, fail = 0, skip = 0, partial = 0;
@@ -569,59 +411,42 @@ btnUpload.addEventListener('click', async () => {
   };
 
   for (const row of targets) {
-    if (stopRequested) {
-      skip++; statSkip.textContent = skip; tick(); continue;
-    }
-    if (!isUploadable(row)) {
-      skip++; statSkip.textContent = skip;
-      log(`skip ${row.file_key || '(none)'} — missing video_cdn or file_key`, 'err');
-      tick(); continue;
-    }
+    if (stopRequested) { skip++; statSkip.textContent = skip; tick(); continue; }
 
-    statusByKey.set(row.file_key, { state: 'uploading' });
-    renderRows();
     log(`upload ${row.file_key} …`);
 
     try {
       const { res, data } = await postUpload(row, key);
 
-      /* --- partial: video failed, image saved --- */
+      /* partial — video failed, image saved */
       if (data && data.partial && !data.success) {
-        statusByKey.set(row.file_key, { state: 'partial', error: data.video_error });
         if (data.image_url) imageUrlByKey.set(row.file_key, data.image_url);
         partial++; statPartial.textContent = partial;
         log(`part ${row.file_key} — ${data.video_error || 'video failed'} · image ✓`, 'warn');
         if (data.image_url) log(`     image: ${data.image_url}`);
-        tick(); renderRows();
-        continue;
+        tick(); continue;
       }
 
-      /* --- full failure --- */
+      /* full failure */
       if (!res.ok || !data.success) {
         const errMsg = data.video_error || data.error || `HTTP ${res.status}`;
-        statusByKey.set(row.file_key, { state: 'err', error: errMsg });
         fail++; statFail.textContent = fail;
         log(`fail ${row.file_key} — ${errMsg}`, 'err');
-        tick(); renderRows();
-        continue;
+        tick(); continue;
       }
 
-      /* --- full success --- */
-      statusByKey.set(row.file_key, { state: 'ok' });
+      /* full success */
       if (data.video_url) videoUrlByKey.set(row.file_key, data.video_url);
       if (data.image_url) imageUrlByKey.set(row.file_key, data.image_url);
-
       ok++; statOk.textContent = ok;
       log(`ok   ${row.file_key}`, 'ok');
       if (data.video_url) log(`     video: ${data.video_url}`);
       if (data.image_url) log(`     image: ${data.image_url}`);
     } catch (err) {
-      statusByKey.set(row.file_key, { state: 'err', error: err.message });
       fail++; statFail.textContent = fail;
       log(`fail ${row.file_key} — ${err.message}`, 'err');
     }
     tick();
-    renderRows();
   }
 
   uploading = false; stopRequested = false; refreshUi();
@@ -629,7 +454,7 @@ btnUpload.addEventListener('click', async () => {
     `done=${done} · ok=${ok} · partial=${partial} · fail=${fail} · skip=${skip}`;
   setStatus(
     `Upload complete — ${ok} ok, ${partial} partial, ${fail} failed, ${skip} skipped.`,
-    (fail === 0 && partial === 0) ? 'ok' : (ok === 0 && partial === 0 ? 'err' : 'warn')
+    (fail === 0 && partial === 0) ? 'ok' : (ok === 0 && partial === 0 ? 'err' : 'warn'),
   );
 });
 
