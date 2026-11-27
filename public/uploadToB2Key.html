@@ -74,6 +74,10 @@
       <button id="btnLoadFromDb" class="secondary">Load uploadable from DB</button>
       <button id="btnClear" class="secondary">Clear</button>
     </div>
+    <div class="field" style="margin-top:10px;">
+      <label for="dbUserId">user_id filter (optional — leave empty for all users)</label>
+      <input id="dbUserId" type="text" placeholder="e.g. jfrnegery">
+    </div>
     <div class="muted" style="margin-top:8px;">
       JSON must be an array of rows produced by <code>tikJsonToB2.transform</code>,
       or <code>{ rows: [...] }</code>. Only rows with <code>video_cdn</code>
