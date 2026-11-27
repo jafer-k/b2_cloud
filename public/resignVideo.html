@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Re-sign video URLs</title>
+<link href="app.css" rel="stylesheet">
+<style>
+  .progress-bar { height:6px; background:var(--panel-2); border-radius:3px; overflow:hidden; }
+  .progress-fill { height:100%; background:var(--accent); width:0; transition:width .2s ease; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Re-sign video URLs</h1>
+  <div class="sub">video_key &rarr; fresh presigned B2 URL &middot; 7-day TTL</div>
+</header>
+
+<main>
+
+  <!-- 1. API key -->
+  <section class="panel">
+    <h2>1. API key</h2>
+    <div id="keyFormArea">
+      <div class="field">
+        <label for="apiKeyInput">X-API-Key</label>
+        <input id="apiKeyInput" type="password" placeholder="paste your X-API-Key" autocomplete="off">
+      </div>
+      <div class="row">
+        <button id="btnSaveKey" class="secondary">Save key</button>
+      </div>
+    </div>
+    <div id="keyStoredArea" class="hidden">
+      <div class="stored-row">
+        <span class="dot">&#10003;</span>
+        <span>API key stored</span>
+        <button id="btnChangeKey" class="secondary">Change</button>
+        <button id="btnForgetKey" class="secondary">Forget</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. Load keys -->
+  <section class="panel">
+    <h2>2. Load video keys</h2>
+
+    <div class="field">
+      <label for="dbUserId">user_id <span style="color:var(--err);">*</span> (required for DB load)</label>
+      <input id="dbUserId" type="text" placeholder="e.g. jfrnegery">
+    </div>
+
+    <div class="row">
+      <button id="btnLoadFromDb" class="secondary" disabled>Load from DB for this user_id</button>
+      <button id="btnClear" class="secondary">Clear</button>
+    </div>
+
+    <div id="sourceBanner" class="file-banner hidden" style="margin-top:10px;">
+      <span class="file-name" id="sourceName"></span>
+      <span class="file-size" id="sourceCount"></span>
+    </div>
+  </section>
+
+  <!-- 3. Generate -->
+  <section class="panel hidden" id="generatePanel">
+    <h2>3. Generate URLs</h2>
+    <div class="row" style="margin-bottom:10px;">
+      <button id="btnGenerate">
+        Generate URLs
+        <span id="spinnerGenerate" class="btn-spinner hidden"></span>
+      </button>
+      <button id="btnUpdateDb" class="hidden">
+        Update DB
+        <span id="spinnerUpdateDb" class="btn-spinner hidden"></span>
+      </button>
+      <span class="muted" id="generateSummary"></span>
+    </div>
+    <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+    <div class="stat-grid" style="margin-top:12px;">
+      <div class="stat"><div class="k">Total keys</div> <div class="v" id="statTotal">0</div></div>
+      <div class="stat"><div class="k">Generated</div>  <div class="v" id="statOk">0</div></div>
+      <div class="stat"><div class="k">Failed</div>     <div class="v" id="statFail">0</div></div>
+    </div>
+  </section>
+
+  <div id="status" class="status">Idle.</div>
+
+</main>
+
+<script type="module">
+const $ = id => document.getElementById(id);
+
+const API_BASE   = 'https://b2cloud-ten.vercel.app';
+const RESIGN_URL = API_BASE + '/api/resignVideo';
+const SQL_URL    = API_BASE + '/api/sql';
+const KEY_STORE  = 'b2_api_key';
+const BATCH_SIZE = 100;
+
+const apiKeyInput     = $('apiKeyInput');
+const keyFormArea     = $('keyFormArea');
+const keyStoredArea   = $('keyStoredArea');
+const btnSaveKey      = $('btnSaveKey');
+const btnChangeKey    = $('btnChangeKey');
+const btnForgetKey    = $('btnForgetKey');
+const btnLoadFromDb   = $('btnLoadFromDb');
+const btnClear        = $('btnClear');
+const dbUserId        = $('dbUserId');
+const sourceBanner    = $('sourceBanner');
+const sourceName      = $('sourceName');
+const sourceCount     = $('sourceCount');
+const generatePanel   = $('generatePanel');
+const btnGenerate     = $('btnGenerate');
+const btnUpdateDb     = $('btnUpdateDb');
+const spinnerGenerate = $('spinnerGenerate');
+const spinnerUpdateDb = $('spinnerUpdateDb');
+const generateSummary = $('generateSummary');
+const progressFill    = $('progressFill');
+const statTotal       = $('statTotal');
+const statOk          = $('statOk');
+const statFail        = $('statFail');
+const statusEl        = $('status');
+
+/* state */
+let entries = [];    // [{ file_key, user_id, video_key }]
+let results = [];    // [{ file_key, user_id, video_url }]
+let working = false;
+let phase   = null;  // 'generate' | 'updateDb' | null
+
+/* ---------- API key ---------- */
+function getApiKey() {
+  try { return localStorage.getItem(KEY_STORE) || ''; } catch { return ''; }
+}
+function setApiKey(k) {
+  try { k ? localStorage.setItem(KEY_STORE, k) : localStorage.removeItem(KEY_STORE); } catch {}
+}
+function refreshKeyUI() {
+  const has = !!getApiKey();
+  keyFormArea.classList.toggle('hidden', has);
+  keyStoredArea.classList.toggle('hidden', !has);
+  refreshUi();
+}
+
+function setStatus(msg, kind) {
+  statusEl.textContent = msg;
+  statusEl.className = 'status' + (kind ? ' ' + kind : '');
+}
+function refreshUi() {
+  const hasKey     = !!getApiKey();
+  const hasUserId  = !!dbUserId.value.trim();
+  const hasEntries = entries.length > 0;
+  const hasUrls    = results.some(r => r && r.video_url);
+
+  btnLoadFromDb.disabled = working || !hasKey || !hasUserId;
+  btnGenerate.disabled   = working || !hasEntries;
+  btnClear.disabled      = working;
+
+  spinnerGenerate.classList.toggle('hidden', phase !== 'generate');
+  spinnerUpdateDb.classList.toggle('hidden', phase !== 'updateDb');
+  btnUpdateDb.classList.toggle('hidden',    working || !hasUrls);
+}
+
+function setEntries(list, label) {
+  entries = list;
+  results = [];
+
+  if (entries.length === 0) {
+    sourceBanner.classList.add('hidden');
+    generatePanel.classList.add('hidden');
+    refreshUi();
+    return;
+  }
+
+  const userIds = [...new Set(entries.map(e => e.user_id).filter(Boolean))];
+  sourceName.textContent  = label || '';
+  sourceCount.textContent =
+    `(${entries.length} key${entries.length === 1 ? '' : 's'}` +
+    (userIds.length ? ` · user_id=${userIds.join(', ')}` : '') + ')';
+  sourceBanner.classList.remove('hidden');
+  generatePanel.classList.remove('hidden');
+  resetStats();
+  refreshUi();
+}
+
+function resetStats() {
+  statTotal.textContent = entries.length;
+  statOk.textContent    = 0;
+  statFail.textContent  = 0;
+  progressFill.style.width = '0%';
+  generateSummary.textContent = '';
+}
+
+/* ---------- API key handlers ---------- */
+btnSaveKey.addEventListener('click', () => {
+  const k = apiKeyInput.value.trim();
+  if (!k) { setStatus('Paste a key first.', 'err'); return; }
+  setApiKey(k); apiKeyInput.value = ''; refreshKeyUI();
+  setStatus('API key saved.', 'ok');
+});
+btnChangeKey.addEventListener('click', () => {
+  keyFormArea.classList.remove('hidden');
+  keyStoredArea.classList.add('hidden');
+  apiKeyInput.focus();
+});
+btnForgetKey.addEventListener('click', () => {
+  setApiKey(''); apiKeyInput.value = ''; refreshKeyUI();
+  setStatus('API key removed.', '');
+});
+
+dbUserId.addEventListener('input', refreshUi);
+
+/* ---------- load: DB ---------- */
+btnLoadFromDb.addEventListener('click', async () => {
+  const key = getApiKey();
+  if (!key) { setStatus('Save an API key first.', 'err'); return; }
+
+  const userId = dbUserId.value.trim();
+  if (!userId) { setStatus('Enter a user_id before loading from DB.', 'err'); return; }
+
+  const sql = `SELECT "file_key","user_id","video_key"
+               FROM "b2_cloud"
+               WHERE "user_id" = ?
+                 AND "video_key" IS NOT NULL
+               ORDER BY "file_key" DESC`;
+  const params = [userId];
+
+  setStatus(`Querying video keys for user_id="${userId}"…`, '');
+
+  try {
+    const res = await fetch(SQL_URL, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+      body: JSON.stringify({ sql, params }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+    const list = (data.rows || []).map(r => ({
+      file_key:  r.file_key,
+      user_id:   r.user_id,
+      video_key: r.video_key,
+    }));
+
+    setEntries(list, `b2_cloud · user_id=${userId}`);
+    setStatus(`Loaded ${list.length} video key(s) for user_id="${userId}".`, 'ok');
+  } catch (err) {
+    setStatus('DB load failed: ' + err.message, 'err');
+  }
+});
+
+btnClear.addEventListener('click', () => {
+  setEntries([], '');
+  setStatus('Cleared.', '');
+});
+
+/* ---------- resign helper ---------- */
+async function resignBatch(items, apiKey) {
+  let lastErr;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = await fetch(RESIGN_URL, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+        body:    JSON.stringify({ items }),
+      });
+      let data = {};
+      try { data = await res.json(); } catch {}
+      return { res, data };
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
+    }
+  }
+  throw lastErr;
+}
+
+/* ---------- generate ---------- */
+btnGenerate.addEventListener('click', async () => {
+  if (working) return;
+  const apiKey = getApiKey();
+  if (!apiKey) { setStatus('Save an API key first.', 'err'); return; }
+  if (entries.length === 0) { setStatus('No keys loaded.', 'err'); return; }
+
+  working = true; phase = 'generate';
+  resetStats(); refreshUi();
+
+  const total = entries.length;
+  results = new Array(total).fill(null);
+  let generated = 0, failed = 0;
+  setStatus(`Generating ${total} URL(s)…`, '');
+
+  for (let offset = 0; offset < total; offset += BATCH_SIZE) {
+    const chunk = entries.slice(offset, offset + BATCH_SIZE);
+    const items = chunk.map(e => ({
+      file_key:  e.file_key,
+      user_id:   e.user_id,
+      video_key: e.video_key,
+    }));
+
+    try {
+      const { res, data } = await resignBatch(items, apiKey);
+
+      if (!res.ok || !Array.isArray(data.results)) {
+        failed += chunk.length;
+        statFail.textContent = failed;
+      } else {
+        for (let j = 0; j < data.results.length; j++) {
+          results[offset + j] = data.results[j];
+          if (data.results[j].video_url) generated++;
+          else                           failed++;
+        }
+        statOk.textContent   = generated;
+        statFail.textContent = failed;
+      }
+    } catch {
+      failed += chunk.length;
+      statFail.textContent = failed;
+    }
+
+    progressFill.style.width =
+      `${Math.round(Math.min(offset + BATCH_SIZE, total) / total * 100)}%`;
+  }
+
+  working = false; phase = null; refreshUi();
+
+  generateSummary.textContent = `generated=${generated} · failed=${failed}`;
+
+  const kind = failed === 0 ? 'ok' : (generated === 0 ? 'err' : 'warn');
+  setStatus(
+    `Done — ${generated}/${total} URL(s) generated${failed ? `, ${failed} failed` : ''}.`,
+    kind,
+  );
+});
+
+/* ---------- update DB ---------- */
+async function updateDbRow(file_key, user_id, video_url, apiKey) {
+  const sql = `UPDATE "b2_cloud"
+               SET "video_url" = ?
+               WHERE "file_key" = ?
+                 AND "user_id" = ?`;
+  const res = await fetch(SQL_URL, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+    body: JSON.stringify({ sql, params: [video_url, file_key, user_id] }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+btnUpdateDb.addEventListener('click', async () => {
+  if (working) return;
+  const apiKey = getApiKey();
+  if (!apiKey) { setStatus('Save an API key first.', 'err'); return; }
+
+  const toUpdate = results.filter(r => r && r.video_url && r.file_key);
+  if (toUpdate.length === 0) { setStatus('No URLs to save.', 'err'); return; }
+
+  working = true; phase = 'updateDb';
+
+  statTotal.textContent = toUpdate.length;
+  statOk.textContent    = 0;
+  statFail.textContent  = 0;
+  progressFill.style.width = '0%';
+  generateSummary.textContent = '';
+  refreshUi();
+
+  setStatus(`Updating ${toUpdate.length} row(s) in DB…`, '');
+
+  let updated = 0, failed = 0;
+
+  for (let i = 0; i < toUpdate.length; i++) {
+    const r = toUpdate[i];
+    try {
+      await updateDbRow(r.file_key, r.user_id, r.video_url, apiKey);
+      updated++;
+      statOk.textContent = updated;
+    } catch {
+      failed++;
+      statFail.textContent = failed;
+    }
+    progressFill.style.width =
+      `${Math.round((i + 1) / toUpdate.length * 100)}%`;
+  }
+
+  working = false; phase = null; refreshUi();
+
+  generateSummary.textContent =
+    `db_updated=${updated} · db_failed=${failed}`;
+
+  const kind = failed === 0 ? 'ok' : (updated === 0 ? 'err' : 'warn');
+  setStatus(
+    `DB update complete — ${updated}/${toUpdate.length} row(s) updated${failed ? `, ${failed} failed` : ''}.`,
+    kind,
+  );
+});
+
+/* boot */
+refreshKeyUI();
+</script>
+</body>
+</html>
