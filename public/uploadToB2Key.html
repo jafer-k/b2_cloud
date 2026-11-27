@@ -440,12 +440,23 @@ btnUpload.addEventListener('click', async () => {
 }
 
   uploading = false; stopRequested = false; refreshUi();
-  uploadSummary.textContent =
-    `done=${done} · ok=${ok} · partial=${partial} · fail=${fail} · skip=${skip}`;
-  setStatus(
-    `Upload complete — ${ok} ok, ${partial} partial, ${fail} failed, ${skip} skipped.`,
-    (fail === 0 && partial === 0) ? 'ok' : (ok === 0 && partial === 0 ? 'err' : 'warn'),
-  );
+
+uploadSummary.textContent =
+  `done=${done} · ok=${ok} · partial=${partial} · fail=${fail} · skip=${skip}`;
+
+const kind = (fail === 0 && partial === 0) ? 'ok'
+           : (ok === 0 && partial === 0)   ? 'err'
+           : 'warn';
+
+setStatus(
+  `Upload complete — ${ok} ok, ${partial} partial, ${fail} failed, ${skip} skipped.`,
+  kind,
+);
+
+log(
+  `Upload complete · total=${total} · ok=${ok} · partial=${partial} · fail=${fail} · skip=${skip}`,
+  kind,
+);
 });
 
 btnStop.addEventListener('click', () => {
