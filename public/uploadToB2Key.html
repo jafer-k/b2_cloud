@@ -187,6 +187,7 @@ const statFail            = $('statFail');
 const statSkip            = $('statSkip');
 const logEl               = $('log');
 const statusEl            = $('status');
+const dbUserId = $('dbUserId');
 
 /* state */
 let rows             = [];
@@ -420,22 +421,27 @@ fileInput.addEventListener('change', async (e) => {
 });
 
 btnLoadFromDb.addEventListener('click', async () => {
-  const key = getApiKey();
+  const key     = getApiKey();
   if (!key) { setStatus('Save an API key first.', 'err'); return; }
-  setStatus('Querying rows from b2_cloud…', '');
+
+  const userId  = dbUserId.value.trim();
+  const baseSql = `SELECT "file_key","user_id","likes","video_cdn","image_cdn","date_posted",
+                          "status","video_url","image_url"
+                   FROM "b2_cloud"
+                   WHERE "video_cdn" IS NOT NULL
+                     AND "video_url" IS NULL`;
+  const sql     = userId
+    ? baseSql + ` AND "user_id" = ? ORDER BY "likes" DESC`
+    : baseSql + ` ORDER BY "likes" DESC`;
+  const params  = userId ? [userId] : [];
+
+  setStatus(userId ? `Querying rows for user_id="${userId}"…` : 'Querying all users…', '');
+
   try {
     const res = await fetch(SQL_URL, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
-      body: JSON.stringify({
-        sql: `SELECT "file_key","user_id","likes","video_cdn","image_cdn","date_posted",
-                     "status","video_url","image_url"
-              FROM "b2_cloud"
-              WHERE "video_cdn" IS NOT NULL
-                AND "video_url" IS NULL
-              ORDER BY "likes" DESC`,
-        params: [],
-      }),
+      body: JSON.stringify({ sql, params }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -451,8 +457,13 @@ btnLoadFromDb.addEventListener('click', async () => {
       video_url:   r.video_url,
       image_url:   r.image_url,
     }));
-    setRows(list, 'b2_cloud (uploadable)');
-    setStatus(`Loaded ${list.length} uploadable row(s) from DB.`, 'ok');
+    setRows(list, userId ? `b2_cloud · user_id=${userId}` : 'b2_cloud (all users)');
+    setStatus(
+      userId
+        ? `Loaded ${list.length} uploadable row(s) for user_id="${userId}".`
+        : `Loaded ${list.length} uploadable row(s) across all users.`,
+      'ok',
+    );
   } catch (err) {
     setStatus('DB load failed: ' + err.message, 'err');
   }
