@@ -15,9 +15,9 @@ const s3 = MISSING.length === 0 ? new S3Client({
   forcePathStyle: true,
 }) : null;
 
-const BUCKET   = process.env.B2_BUCKET_NAME;
-const TTL      = 7 * 24 * 60 * 60;   // 7 days — B2 / SigV4 hard cap
-const MAX_KEYS = 100;
+const BUCKET    = process.env.B2_BUCKET_NAME;
+const TTL       = 7 * 24 * 60 * 60;
+const MAX_ITEMS = 100;
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -42,35 +42,34 @@ export default async function handler(req, res) {
   }
   if (!body || typeof body !== 'object') body = {};
 
-  const keys = Array.isArray(body.keys)
-    ? body.keys.map(k => (typeof k === 'string' ? k.trim() : '')).filter(Boolean)
+  /* --- request: { items: [{ file_key, user_id, image_key }] } --- */
+  const items = Array.isArray(body.items)
+    ? body.items
+        .map(it => ({
+          file_key:  it && typeof it.file_key  === 'string' ? it.file_key.trim()  : null,
+          user_id:   it && typeof it.user_id   === 'string' ? it.user_id.trim()   : null,
+          image_key: it && typeof it.image_key === 'string' ? it.image_key.trim() : '',
+        }))
+        .filter(it => it.image_key)
     : [];
 
-  if (keys.length === 0)  return res.status(400).json({ error: 'keys array required' });
-  if (keys.length > MAX_KEYS) {
-    return res.status(400).json({ error: `max ${MAX_KEYS} keys per request — split into batches` });
-  }
+  if (items.length === 0)       return res.status(400).json({ error: 'items array required' });
+  if (items.length > MAX_ITEMS) return res.status(400).json({ error: `max ${MAX_ITEMS} items per request` });
 
-  const expiresAt = new Date(Date.now() + TTL * 1000).toISOString();
-  const results   = [];
-
-  for (const key of keys) {
+  /* --- response: { results: [{ file_key, user_id, image_url }] } --- */
+  const results = [];
+  for (const item of items) {
     try {
-      const url = await getSignedUrl(
+      const image_url = await getSignedUrl(
         s3,
-        new GetObjectCommand({ Bucket: BUCKET, Key: key }),
+        new GetObjectCommand({ Bucket: BUCKET, Key: item.image_key }),
         { expiresIn: TTL },
       );
-      results.push({ key, url, expiresAt });
-    } catch (e) {
-      results.push({ key, url: null, error: e.message });
+      results.push({ file_key: item.file_key, user_id: item.user_id, image_url });
+    } catch {
+      results.push({ file_key: item.file_key, user_id: item.user_id, image_url: null });
     }
   }
 
-  return res.status(200).json({
-    count:     results.length,
-    expiresIn: TTL,
-    expiresAt,
-    results,
-  });
+  return res.status(200).json({ results });
 }
