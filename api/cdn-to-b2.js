@@ -158,7 +158,7 @@ export default async function handler(req, res) {
   }
   if (!body || typeof body !== 'object') body = {};
 
-  const url = typeof body.url === 'string' ? body.url.trim() : '';
+  const url = typeof body.video_cdn === 'string' ? body.video_cdn.trim() : '';
   if (!url) return res.status(400).json({ success: false, error: 'url required' });
 
   let parsed;
@@ -213,10 +213,10 @@ export default async function handler(req, res) {
   const imageKey = await uploadImage(imageUrl, fileKey);
 
   /* -------- 3. sign URLs (7-day TTL) -------- */
-  let videoUrl = null, coverUrl = null;
+  let videoUrl = null, imageUrl = null;
   try {
     videoUrl = await signedUrl(videoKey);
-    coverUrl = await signedUrl(imageKey);
+    imageUrl = await signedUrl(imageKey);
   } catch (e) {
     console.error('signing failed:', e.message);
   }
@@ -226,14 +226,14 @@ export default async function handler(req, res) {
     const result = await db.execute({
       sql: `UPDATE "b2_cloud"
                SET "video_url"  = ?,
-                   "cover_url"  = COALESCE(?, "cover_url"),
+                   "image_url"  = COALESCE(?, "image_url"),
                    "file_size"  = ?,
                    "status"     = 'ok',
                    "created_at" = ?
              WHERE "file_key"  = ?`,
       args: [
         videoUrl,
-        coverUrl,
+        imageUrl,
         videoResult.bytes ?? null,
         nowMs,
         fileKey,
@@ -258,7 +258,7 @@ export default async function handler(req, res) {
       videoKey,
       imageKey,
       videoUrl,
-      coverUrl,
+      imageUrl,
       bytes: videoResult.bytes,
       status: 'ok',
     });
