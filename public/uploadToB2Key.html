@@ -8,7 +8,7 @@
 <style>
   .progress-bar { height:6px; background:var(--panel-2); border-radius:3px; overflow:hidden; }
   .progress-fill { height:100%; background:var(--accent); width:0; transition:width .2s ease; }
-  .log { font-family:var(--mono); font-size:11.5px; max-height:400px; overflow:auto;
+  .log { font-family:var(--mono); font-size:11.5px; max-height:200px; overflow:auto;
          background:var(--panel-2); border:1px solid var(--border); border-radius:8px; padding:8px; }
   .log-line { padding:1px 0; }
   .log-line.err  { color:var(--err); }
@@ -83,7 +83,6 @@
     <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
     <div class="stat-grid" style="margin-top:12px;">
       <div class="stat"><div class="k">Total</div>   <div class="v" id="statTotal">0</div></div>
-      <div class="stat"><div class="k">Done</div>    <div class="v" id="statDone">0</div></div>
       <div class="stat"><div class="k">OK</div>      <div class="v" id="statOk">0</div></div>
       <div class="stat"><div class="k">Partial</div> <div class="v" id="statPartial">0</div></div>
       <div class="stat"><div class="k">Failed</div>  <div class="v" id="statFail">0</div></div>
@@ -100,7 +99,7 @@
 const $ = id => document.getElementById(id);
 
 const API_BASE   = 'https://b2cloud-ten.vercel.app';
-const UPLOAD_URL = API_BASE + '/api/cdn-to-b2';
+const UPLOAD_URL = API_BASE + '/api/cdn-to-b2-key';
 const SQL_URL    = API_BASE + '/api/sql';
 const KEY_STORE  = 'b2_api_key';
 
@@ -127,7 +126,6 @@ const spinnerUpload  = $('spinnerUpload');
 const uploadSummary  = $('uploadSummary');
 const progressFill   = $('progressFill');
 const statTotal      = $('statTotal');
-const statDone       = $('statDone');
 const statOk         = $('statOk');
 const statPartial    = $('statPartial');
 const statFail       = $('statFail');
@@ -194,7 +192,6 @@ function setRows(newRows, label) {
   videoUrlByKey  = new Map();
   imageUrlByKey  = new Map();
 
-  /* pre-fill URLs from rows that already have them */
   for (const r of rows) {
     if (r.file_key && r.video_url) videoUrlByKey.set(r.file_key, r.video_url);
     if (r.file_key && r.image_url) imageUrlByKey.set(r.file_key, r.image_url);
@@ -218,7 +215,6 @@ function setRows(newRows, label) {
 
 function resetStats() {
   statTotal.textContent   = rows.filter(isUploadable).length;
-  statDone.textContent    = 0;
   statOk.textContent      = 0;
   statPartial.textContent = 0;
   statFail.textContent    = 0;
@@ -406,57 +402,52 @@ btnUpload.addEventListener('click', async () => {
 
   const tick = () => {
     done++;
-    statDone.textContent = done;
     progressFill.style.width = `${Math.round(done / total * 100)}%`;
   };
 
   for (const row of targets) {
-  if (stopRequested) { skip++; statSkip.textContent = skip; tick(); continue; }
+    if (stopRequested) { skip++; statSkip.textContent = skip; tick(); continue; }
 
-  try {
-    const { res, data } = await postUpload(row, key);
+    try {
+      const { data } = await postUpload(row, key);
 
-    /* partial — video failed, image saved */
-    if (data && data.partial && !data.success) {
-      if (data.image_url) imageUrlByKey.set(row.file_key, data.image_url);
-      partial++; statPartial.textContent = partial;
-      tick(); continue;
-    }
+      const videoOk = !!data.video_url;
+      const imageOk = !!data.image_url;
 
-    /* full failure */
-    if (!res.ok || !data.success) {
+      if (videoOk) {
+        videoUrlByKey.set(row.file_key, data.video_url);
+        if (data.image_url) imageUrlByKey.set(row.file_key, data.image_url);
+        ok++; statOk.textContent = ok;
+      } else if (imageOk) {
+        imageUrlByKey.set(row.file_key, data.image_url);
+        partial++; statPartial.textContent = partial;
+      } else {
+        fail++; statFail.textContent = fail;
+      }
+    } catch (err) {
       fail++; statFail.textContent = fail;
-      tick(); continue;
     }
-
-    /* full success */
-    if (data.video_url) videoUrlByKey.set(row.file_key, data.video_url);
-    if (data.image_url) imageUrlByKey.set(row.file_key, data.image_url);
-    ok++; statOk.textContent = ok;
-  } catch (err) {
-    fail++; statFail.textContent = fail;
+    tick();
   }
-  tick();
-}
 
   uploading = false; stopRequested = false; refreshUi();
 
-uploadSummary.textContent =
-  `done=${done} · ok=${ok} · partial=${partial} · fail=${fail} · skip=${skip}`;
+  uploadSummary.textContent =
+    `total=${total} · ok=${ok} · partial=${partial} · fail=${fail} · skip=${skip}`;
 
-const kind = (fail === 0 && partial === 0) ? 'ok'
-           : (ok === 0 && partial === 0)   ? 'err'
-           : 'warn';
+  const kind = (fail === 0 && partial === 0) ? 'ok'
+             : (ok === 0 && partial === 0)   ? 'err'
+             : 'warn';
 
-setStatus(
-  `Upload complete — ${ok} ok, ${partial} partial, ${fail} failed, ${skip} skipped.`,
-  kind,
-);
+  setStatus(
+    `Upload complete — ${ok} ok, ${partial} partial, ${fail} failed, ${skip} skipped.`,
+    kind,
+  );
 
-log(
-  `Upload complete · total=${total} · ok=${ok} · partial=${partial} · fail=${fail} · skip=${skip}`,
-  kind,
-);
+  log(
+    `Upload complete · total=${total} · ok=${ok} · partial=${partial} · fail=${fail} · skip=${skip}`,
+    kind,
+  );
 });
 
 btnStop.addEventListener('click', () => {
