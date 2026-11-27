@@ -411,43 +411,33 @@ btnUpload.addEventListener('click', async () => {
   };
 
   for (const row of targets) {
-    if (stopRequested) { skip++; statSkip.textContent = skip; tick(); continue; }
+  if (stopRequested) { skip++; statSkip.textContent = skip; tick(); continue; }
 
-    log(`upload ${row.file_key} …`);
+  try {
+    const { res, data } = await postUpload(row, key);
 
-    try {
-      const { res, data } = await postUpload(row, key);
-
-      /* partial — video failed, image saved */
-      if (data && data.partial && !data.success) {
-        if (data.image_url) imageUrlByKey.set(row.file_key, data.image_url);
-        partial++; statPartial.textContent = partial;
-        log(`part ${row.file_key} — ${data.video_error || 'video failed'} · image ✓`, 'warn');
-        if (data.image_url) log(`     image: ${data.image_url}`);
-        tick(); continue;
-      }
-
-      /* full failure */
-      if (!res.ok || !data.success) {
-        const errMsg = data.video_error || data.error || `HTTP ${res.status}`;
-        fail++; statFail.textContent = fail;
-        log(`fail ${row.file_key} — ${errMsg}`, 'err');
-        tick(); continue;
-      }
-
-      /* full success */
-      if (data.video_url) videoUrlByKey.set(row.file_key, data.video_url);
+    /* partial — video failed, image saved */
+    if (data && data.partial && !data.success) {
       if (data.image_url) imageUrlByKey.set(row.file_key, data.image_url);
-      ok++; statOk.textContent = ok;
-      log(`ok   ${row.file_key}`, 'ok');
-      if (data.video_url) log(`     video: ${data.video_url}`);
-      if (data.image_url) log(`     image: ${data.image_url}`);
-    } catch (err) {
-      fail++; statFail.textContent = fail;
-      log(`fail ${row.file_key} — ${err.message}`, 'err');
+      partial++; statPartial.textContent = partial;
+      tick(); continue;
     }
-    tick();
+
+    /* full failure */
+    if (!res.ok || !data.success) {
+      fail++; statFail.textContent = fail;
+      tick(); continue;
+    }
+
+    /* full success */
+    if (data.video_url) videoUrlByKey.set(row.file_key, data.video_url);
+    if (data.image_url) imageUrlByKey.set(row.file_key, data.image_url);
+    ok++; statOk.textContent = ok;
+  } catch (err) {
+    fail++; statFail.textContent = fail;
   }
+  tick();
+}
 
   uploading = false; stopRequested = false; refreshUi();
   uploadSummary.textContent =
