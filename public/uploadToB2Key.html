@@ -28,6 +28,7 @@
   .cell-ellipsis { max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .tbl input[type="checkbox"] { margin:0; cursor:pointer; }
   .mini-btn { font-size:10px; padding:2px 6px; margin-left:6px; }
+  .rs-partial   { background:rgba(255,180,40,.15); color:var(--warn); }
 </style>
 </head>
 <body>
@@ -122,10 +123,11 @@
       <span class="muted" id="uploadSummary"></span>
     </div>
     <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
-    <div class="stat-grid" style="margin-top:12px;">
+  <div class="stat-grid" style="margin-top:12px;">
       <div class="stat"><div class="k">Total</div><div class="v" id="statTotal">0</div></div>
       <div class="stat"><div class="k">Done</div><div class="v" id="statDone">0</div></div>
       <div class="stat"><div class="k">OK</div><div class="v" id="statOk">0</div></div>
+      <div class="stat"><div class="k">Partial</div><div class="v" id="statPartial">0</div></div>
       <div class="stat"><div class="k">Failed</div><div class="v" id="statFail">0</div></div>
       <div class="stat"><div class="k">Skipped</div><div class="v" id="statSkip">0</div></div>
     </div>
@@ -140,7 +142,7 @@
 const $ = id => document.getElementById(id);
 
 const API_BASE   = 'https://b2cloud-ten.vercel.app';
-const UPLOAD_URL = API_BASE + '/api/cdn-to-b2Key';
+const UPLOAD_URL = API_BASE + '/api/cdn-to-b2-key';
 const SQL_URL    = API_BASE + '/api/sql';
 const KEY_STORE  = 'b2_api_key';
 
@@ -179,6 +181,7 @@ const statFail            = $('statFail');
 const statSkip            = $('statSkip');
 const logEl               = $('log');
 const statusEl            = $('status');
+const statPartial = $('statPartial');
 
 /* state */
 let rows             = [];
@@ -325,11 +328,12 @@ function setRows(newRows, label) {
 }
 
 function resetStats() {
-  statTotal.textContent  = rows.length;
-  statDone.textContent   = 0;
-  statOk.textContent     = 0;
-  statFail.textContent   = 0;
-  statSkip.textContent   = 0;
+  statTotal.textContent = rows.length;
+  statDone.textContent = 0;
+  statOk.textContent = 0;
+  statPartial.textContent = 0;
+  statFail.textContent = 0;
+  statSkip.textContent = 0;
   progressFill.style.width = '0%';
   uploadSummary.textContent = '';
   logEl.classList.add('hidden');
@@ -453,17 +457,94 @@ chkAll.addEventListener('change', () => {
 
 /* ---------- copy all ---------- */
 btnCopyAll.addEventListener('click', async () => {
-  const lines = [...resolveUrlByKey.entries()]
-    .map(([fk, url]) => `${fk}\t${url}`)
-    .join('\n');
-  if (!lines) return;
+  const lines = [];
+  for (const [fk, url] of resolveUrlByKey.entries()) {
+    if (fk.endsWith(':image')) continue; // handled below
+    lines.push(`${fk}\t${url}`);
+    const img = resolveUrlByKey.get(fk + ':image');
+    if (img) lines.push(`${fk}\t(image)\t${img}`);
+  }
+  if (!lines.length) return;
+  const txt = lines.join('\n');
   try {
-    await navigator.clipboard.writeText(lines);
-    setStatus(`Copied ${resolveUrlByKey.size} URL(s) to clipboard.`, 'ok');
+    await navigator.clipboard.writeText(txt);
+    setStatus(`Copied ${lines.length} URL(s) to clipboard.`, 'ok');
   } catch {
-    window.prompt('Copy URLs:', lines);
+    window.prompt('Copy URLs:', txt);
   }
 });
+
+// Returns { ok: boolean, reason: string, expiresAt: Date|null }
+function checkCdnUrl(url) {
+  if (!url) return { ok: false, reason: 'empty url', expiresAt: null };
+  let u;
+  try { u = new URL(url); }
+  catch { return { ok: false, reason: 'invalid url', expiresAt: null }; }
+  
+  // Image CDN: explicit x-expires
+  const xExp = Number(u.searchParams.get('x-expires') || 0);
+  if (xExp > 0) {
+    const at = new Date(xExp * 1000);
+    return xExp * 1000 < Date.now() ?
+      { ok: false, reason: 'image url expired at ' + at.toISOString(), expiresAt: at } :
+      { ok: true, reason: 'image url valid until ' + at.toISOString(), expiresAt: at };
+  }
+  
+  // Video CDN: decode l=YYYYMMDDHHMMSS..., assume 24h TTL (safe default)
+  const l = u.searchParams.get('l') || '';
+  if (/^\d{14}/.test(l)) {
+    const t = l.slice(0, 14);
+    const gen = Date.UTC(
+      +t.slice(0, 4), +t.slice(4, 6) - 1, +t.slice(6, 8),
+      +t.slice(8, 10), +t.slice(10, 12), +t.slice(12, 14),
+    );
+    const at = new Date(gen + 24 * 3600 * 1000); // 24h from generation
+    const at48 = new Date(gen + 48 * 3600 * 1000); // 48h upper bound
+    return at.getTime() < Date.now() ?
+      { ok: false, reason: `video url generated ${new Date(gen).toISOString()}, assumed dead since ${at.toISOString()} (48h max: ${at48.toISOString()})`, expiresAt: at } :
+      { ok: true, reason: `video url generated ${new Date(gen).toISOString()}, assumed valid until ${at.toISOString()}`, expiresAt: at };
+  }
+  
+  // Unknown scheme — let the server decide
+  return { ok: true, reason: 'unknown scheme — not pre-checked', expiresAt: null };
+}
+
+/**
+ * POSTs to the upload endpoint with one retry on network-level errors
+ * (i.e. the browser's fetch() throwing "Load failed" / "Failed to fetch").
+ *
+ * Returns { res, data } on any completed HTTP response (any status code).
+ * Throws only if BOTH attempts fail at the network layer.
+ */
+async function postUpload(row, key) {
+  const payload = JSON.stringify({
+    video_cdn: row.video_cdn,
+    file_key: row.file_key,
+    image_cdn: row.image_cdn || '',
+    date: row.date_posted || '',
+  });
+  
+  let lastErr;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = await fetch(UPLOAD_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+        body: payload,
+      });
+      let data = {};
+      try { data = await res.json(); } catch {}
+      return { res, data };
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 2) {
+        log(`retry ${row.file_key} (attempt 2/2) — ${err.message}`, 'warn');
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+  }
+  throw lastErr;
+}
 
 /* ---------- upload ---------- */
 btnUpload.addEventListener('click', async () => {
@@ -479,7 +560,7 @@ btnUpload.addEventListener('click', async () => {
   logEl.classList.remove('hidden');
 
   const total = targets.length;
-  let done = 0, ok = 0, fail = 0, skip = 0;
+  let done = 0, ok = 0, fail = 0, skip = 0, partial = 0;
   statTotal.textContent = total;
   setStatus(`Uploading ${total} row(s)…`, '');
 
@@ -504,43 +585,58 @@ btnUpload.addEventListener('click', async () => {
     log(`upload ${row.file_key} …`);
 
     try {
-      const res = await fetch(UPLOAD_URL, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
-        body: JSON.stringify({
-          video_cdn: row.video_cdn,
-          file_key:  row.file_key,
-          image_cdn: row.image_cdn || '',
-          date:      row.date_posted || '',
-        }),
-      });
-      let data = {};
-      try { data = await res.json(); } catch {}
+      const { res, data } = await postUpload(row, key);
+
+      if (data && data.partial && !data.success) {
+        statusByKey.set(row.file_key, { state: 'partial', error: data.error });
+        if (data.imageUrl) resolveUrlByKey.set(row.file_key + ':image', data.imageUrl);
+        partial++; statPartial.textContent = partial;
+        log(`part ${row.file_key} — ${data.error}`, 'err');
+        if (data.imageKey) log(`     image saved: ${data.imageKey}`, 'ok');
+        if (data.imageUrl) log(`     ${data.imageUrl}`, 'ok');
+        tick(); renderRows();
+        continue;
+      }
+
       if (!res.ok || !data.success) {
-        throw new Error(data.error || `HTTP ${res.status}`);
+        statusByKey.set(row.file_key, {
+          state: 'err',
+          error: data.error || `HTTP ${res.status}`,
+        });
+        fail++; statFail.textContent = fail;
+        log(`fail ${row.file_key} — ${data.error || ('HTTP ' + res.status)}`, 'err');
+        tick(); renderRows();
+        continue;
       }
 
       statusByKey.set(row.file_key, { state: 'ok' });
       if (data.videoUrl) resolveUrlByKey.set(row.file_key, data.videoUrl);
+      if (data.imageUrl) resolveUrlByKey.set(row.file_key + ':image', data.imageUrl);
 
       ok++; statOk.textContent = ok;
       log(`ok   ${row.file_key} — bytes=${data.bytes ?? '?'}` +
           ` · videoKey=${data.videoKey || '-'} · imageKey=${data.imageKey || '-'}`, 'ok');
-      if (data.videoUrl) log(`     ${data.videoUrl}`);
+      if (data.videoUrl) log(`     video: ${data.videoUrl}`);
+      if (data.imageUrl) log(`     image: ${data.imageUrl}`);
     } catch (err) {
-      statusByKey.set(row.file_key, { state: 'err', error: err.message });
+      statusByKey.set(row.file_key, { state: 'ambiguous', error: err.message });
       fail++; statFail.textContent = fail;
-      log(`fail ${row.file_key} — ${err.message}`, 'err');
+      log(
+        `ambiguous ${row.file_key} — ${err.message}` +
+        ` · server state unknown, check DB (status/video_url) before retrying`,
+        'err',
+      );
     }
     tick();
     renderRows();
   }
 
   uploading = false; stopRequested = false; refreshUi();
-  uploadSummary.textContent = `done=${done} · ok=${ok} · fail=${fail} · skip=${skip}`;
+  uploadSummary.textContent =
+    `done=${done} · ok=${ok} · partial=${partial} · fail=${fail} · skip=${skip}`;
   setStatus(
-    `Upload complete — ${ok}/${total} ok, ${fail} failed, ${skip} skipped.`,
-    fail === 0 ? 'ok' : 'err'
+    `Upload complete — ${ok} ok, ${partial} partial, ${fail} failed, ${skip} skipped.`,
+    (fail === 0 && partial === 0) ? 'ok' : (ok === 0 ? 'err' : 'warn'),
   );
 });
 
