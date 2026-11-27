@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Upload to B2 &rarr; cdn-to-b2</title>
+<title>Upload to B2 → cdn-to-b2</title>
 <link href="app.css" rel="stylesheet">
 <style>
   .tbl-wrap { max-height:520px; overflow:auto; border:1px solid var(--border); border-radius:8px; }
@@ -16,26 +16,27 @@
   .rs-pending   { background:#2a2f3a; color:var(--muted); }
   .rs-uploading { background:rgba(79,140,255,.2); color:var(--accent); }
   .rs-ok        { background:rgba(46,204,113,.15); color:var(--ok); }
+  .rs-partial   { background:rgba(255,180,40,.15); color:var(--warn); }
   .rs-err       { background:rgba(255,92,92,.15); color:var(--err); }
   .rs-skip      { background:rgba(255,180,40,.15); color:var(--warn); }
   .progress-bar { height:6px; background:var(--panel-2); border-radius:3px; overflow:hidden; }
   .progress-fill { height:100%; background:var(--accent); width:0; transition:width .2s ease; }
-  .log { font-family:var(--mono); font-size:11.5px; max-height:180px; overflow:auto;
+  .log { font-family:var(--mono); font-size:11.5px; max-height:200px; overflow:auto;
          background:var(--panel-2); border:1px solid var(--border); border-radius:8px; padding:8px; }
   .log-line { padding:1px 0; }
-  .log-line.err { color:var(--err); }
-  .log-line.ok  { color:var(--ok); }
+  .log-line.err  { color:var(--err); }
+  .log-line.ok   { color:var(--ok); }
+  .log-line.warn { color:var(--warn); }
   .cell-ellipsis { max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .tbl input[type="checkbox"] { margin:0; cursor:pointer; }
   .mini-btn { font-size:10px; padding:2px 6px; margin-left:6px; }
-  .rs-partial   { background:rgba(255,180,40,.15); color:var(--warn); }
 </style>
 </head>
 <body>
 
 <header>
   <h1>Upload to B2 &rarr; cdn-to-b2</h1>
-  <div class="sub">select rows &middot; upload &middot; stable URLs</div>
+  <div class="sub">select rows &middot; upload &middot; track</div>
 </header>
 
 <main>
@@ -75,7 +76,7 @@
     </div>
     <div class="muted" style="margin-top:8px;">
       JSON must be an array of rows produced by <code>tikJsonToB2.transform</code>,
-      or <code>{ rows: [...] }</code>. Only rows with a <code>video_cdn</code>
+      or <code>{ rows: [...] }</code>. Only rows with <code>video_cdn</code>
       and <code>file_key</code> are uploadable.
     </div>
     <div id="sourceBanner" class="file-banner hidden" style="margin-top:10px;">
@@ -123,13 +124,13 @@
       <span class="muted" id="uploadSummary"></span>
     </div>
     <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
-  <div class="stat-grid" style="margin-top:12px;">
-      <div class="stat"><div class="k">Total</div><div class="v" id="statTotal">0</div></div>
-      <div class="stat"><div class="k">Done</div><div class="v" id="statDone">0</div></div>
-      <div class="stat"><div class="k">OK</div><div class="v" id="statOk">0</div></div>
-      <div class="stat"><div class="k">Partial</div><div class="v" id="statPartial">0</div></div>
-      <div class="stat"><div class="k">Failed</div><div class="v" id="statFail">0</div></div>
-      <div class="stat"><div class="k">Skipped</div><div class="v" id="statSkip">0</div></div>
+    <div class="stat-grid" style="margin-top:12px;">
+      <div class="stat"><div class="k">Total</div>   <div class="v" id="statTotal">0</div></div>
+      <div class="stat"><div class="k">Done</div>    <div class="v" id="statDone">0</div></div>
+      <div class="stat"><div class="k">OK</div>      <div class="v" id="statOk">0</div></div>
+      <div class="stat"><div class="k">Partial</div> <div class="v" id="statPartial">0</div></div>
+      <div class="stat"><div class="k">Failed</div>  <div class="v" id="statFail">0</div></div>
+      <div class="stat"><div class="k">Skipped</div> <div class="v" id="statSkip">0</div></div>
     </div>
     <div id="log" class="log hidden" style="margin-top:12px;"></div>
   </section>
@@ -177,25 +178,22 @@ const progressFill        = $('progressFill');
 const statTotal           = $('statTotal');
 const statDone            = $('statDone');
 const statOk              = $('statOk');
+const statPartial         = $('statPartial');
 const statFail            = $('statFail');
 const statSkip            = $('statSkip');
 const logEl               = $('log');
 const statusEl            = $('status');
-const statPartial = $('statPartial');
 
 /* state */
 let rows             = [];
-let statusByKey      = new Map(); // file_key -> { state, error }
-let resolveUrlByKey  = new Map(); // file_key -> permanent resolve URL
+let statusByKey      = new Map();  // file_key -> { state, error }
+let videoUrlByKey    = new Map();  // file_key -> resolve URL
+let imageUrlByKey    = new Map();  // file_key -> resolve URL
 let selected         = new Set();
 let uploading        = false;
 let stopRequested    = false;
 
-/* ---------- status / API key ---------- */
-function setStatus(msg, kind) {
-  statusEl.textContent = msg;
-  statusEl.className = 'status' + (kind ? ' ' + kind : '');
-}
+/* ---------- API key ---------- */
 function getApiKey() {
   try { return localStorage.getItem(KEY_STORE) || ''; } catch { return ''; }
 }
@@ -208,9 +206,17 @@ function refreshKeyUI() {
   keyStoredArea.classList.toggle('hidden', !has);
   refreshUi();
 }
+
+/* ---------- status / ui ---------- */
+function setStatus(msg, kind) {
+  statusEl.textContent = msg;
+  statusEl.className = 'status' + (kind ? ' ' + kind : '');
+}
 function refreshUi() {
   const hasKey  = !!getApiKey();
   const hasRows = rows.length > 0;
+  const hasUrls = videoUrlByKey.size > 0 || imageUrlByKey.size > 0;
+
   btnLoadFromDb.disabled        = uploading || !hasKey;
   btnUpload.disabled            = uploading || !hasKey || selected.size === 0;
   btnSelectAll.disabled         = uploading;
@@ -218,11 +224,11 @@ function refreshUi() {
   btnSelectUploadable.disabled  = uploading;
   btnClear.disabled             = uploading;
   fileInput.disabled            = uploading;
-  btnCopyAll.classList.toggle('hidden', uploading || resolveUrlByKey.size === 0);
   fileBtnLabel.style.pointerEvents = uploading ? 'none' : '';
   fileBtnLabel.style.opacity       = uploading ? '.5'   : '';
   spinnerUpload.classList.toggle('hidden', !uploading);
   btnStop.classList.toggle('hidden', !uploading);
+  btnCopyAll.classList.toggle('hidden', uploading || !hasUrls);
   selSummary.textContent = hasRows ? `${selected.size} of ${rows.length} selected` : '';
 }
 
@@ -230,7 +236,7 @@ function refreshUi() {
 function isUploadable(row) { return !!(row && row.file_key && row.video_cdn); }
 function rowState(row) {
   return statusByKey.get(row.file_key) ||
-         { state: row.status === 'ok' ? 'ok' : 'pending' };
+         { state: row.video_url ? 'ok' : (row.status === 'fail' ? 'err' : 'pending') };
 }
 
 /* ---------- render ---------- */
@@ -277,15 +283,17 @@ function renderRows() {
     if (st.error) badge.title = st.error;
     tdSt.appendChild(badge);
 
-    const url = resolveUrlByKey.get(row.file_key);
-    if (url) {
+    const v = videoUrlByKey.get(row.file_key);
+    const i = imageUrlByKey.get(row.file_key);
+    if (v || i) {
       const cp = document.createElement('button');
       cp.className = 'secondary mini-btn';
-      cp.textContent = 'Copy URL';
-      cp.title = url;
+      cp.textContent = v && i ? 'Copy 2' : (v ? 'Copy video' : 'Copy image');
+      cp.title = [v, i].filter(Boolean).join('\n');
       cp.addEventListener('click', async () => {
-        try { await navigator.clipboard.writeText(url); cp.textContent = 'Copied!'; setTimeout(() => cp.textContent = 'Copy URL', 1200); }
-        catch { window.prompt('Copy URL:', url); }
+        const text = [v, i].filter(Boolean).join('\n');
+        try { await navigator.clipboard.writeText(text); cp.textContent = 'Copied!'; setTimeout(() => cp.textContent = v && i ? 'Copy 2' : (v ? 'Copy video' : 'Copy image'), 1200); }
+        catch { window.prompt('Copy URL(s):', text); }
       });
       tdSt.appendChild(cp);
     }
@@ -300,13 +308,23 @@ function renderRows() {
 function setRows(newRows, label) {
   rows            = newRows;
   statusByKey     = new Map();
-  resolveUrlByKey = new Map();
+  videoUrlByKey   = new Map();
+  imageUrlByKey   = new Map();
   selected        = new Set();
   sourceName.textContent = label || '';
 
+  /* Pre-fill state from DB truth: video_url set = already uploaded */
   for (const r of rows) {
-    if (r.status === 'ok' && r.file_key) statusByKey.set(r.file_key, { state: 'ok' });
+    if (!r.file_key) continue;
+    if (r.video_url) {
+      statusByKey.set(r.file_key, { state: 'ok' });
+      videoUrlByKey.set(r.file_key, r.video_url);
+      if (r.image_url) imageUrlByKey.set(r.file_key, r.image_url);
+    } else if (r.status === 'fail') {
+      statusByKey.set(r.file_key, { state: 'err' });
+    }
   }
+
   for (const r of rows) {
     if (isUploadable(r) && rowState(r).state !== 'ok') selected.add(r.file_key);
   }
@@ -328,12 +346,12 @@ function setRows(newRows, label) {
 }
 
 function resetStats() {
-  statTotal.textContent = rows.length;
-  statDone.textContent = 0;
-  statOk.textContent = 0;
+  statTotal.textContent   = rows.length;
+  statDone.textContent    = 0;
+  statOk.textContent      = 0;
   statPartial.textContent = 0;
-  statFail.textContent = 0;
-  statSkip.textContent = 0;
+  statFail.textContent    = 0;
+  statSkip.textContent    = 0;
   progressFill.style.width = '0%';
   uploadSummary.textContent = '';
   logEl.classList.add('hidden');
@@ -375,7 +393,7 @@ fileInput.addEventListener('change', async (e) => {
     const text   = await f.text();
     const parsed = JSON.parse(text);
     let list;
-    if (Array.isArray(parsed))                    list = parsed;
+    if (Array.isArray(parsed))                     list = parsed;
     else if (parsed && Array.isArray(parsed.rows)) list = parsed.rows;
     else throw new Error('JSON must be an array or { rows: [...] }');
 
@@ -387,6 +405,8 @@ fileInput.addEventListener('change', async (e) => {
       date_posted: r.date_posted ?? null,
       user_id:     r.user_id     ?? null,
       status:      r.status      ?? null,
+      video_url:   r.video_url   ?? null,
+      image_url:   r.image_url   ?? null,
     }));
     setRows(list, f.name);
     setStatus(`Loaded ${list.length} row(s) from "${f.name}".`, 'ok');
@@ -404,9 +424,11 @@ btnLoadFromDb.addEventListener('click', async () => {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
       body: JSON.stringify({
-        sql: `SELECT "file_key","user_id","likes","video_cdn","image_cdn","date_posted","status"
+        sql: `SELECT "file_key","user_id","likes","video_cdn","image_cdn","date_posted",
+                     "status","video_url","image_url"
               FROM "b2_cloud"
-              WHERE "video_cdn" IS NOT NULL AND "status" != 'ok'
+              WHERE "video_cdn" IS NOT NULL
+                AND "video_url" IS NULL
               ORDER BY "likes" DESC`,
         params: [],
       }),
@@ -422,6 +444,8 @@ btnLoadFromDb.addEventListener('click', async () => {
       image_cdn:   r.image_cdn,
       date_posted: r.date_posted,
       status:      r.status,
+      video_url:   r.video_url,
+      image_url:   r.image_url,
     }));
     setRows(list, 'b2_cloud (uploadable)');
     setStatus(`Loaded ${list.length} uploadable row(s) from DB.`, 'ok');
@@ -458,79 +482,37 @@ chkAll.addEventListener('change', () => {
 /* ---------- copy all ---------- */
 btnCopyAll.addEventListener('click', async () => {
   const lines = [];
-  for (const [fk, url] of resolveUrlByKey.entries()) {
-    if (fk.endsWith(':image')) continue; // handled below
-    lines.push(`${fk}\t${url}`);
-    const img = resolveUrlByKey.get(fk + ':image');
-    if (img) lines.push(`${fk}\t(image)\t${img}`);
+  for (const row of rows) {
+    const v = videoUrlByKey.get(row.file_key);
+    const i = imageUrlByKey.get(row.file_key);
+    if (v) lines.push(`${row.file_key}\t(video)\t${v}`);
+    if (i) lines.push(`${row.file_key}\t(image)\t${i}`);
   }
   if (!lines.length) return;
-  const txt = lines.join('\n');
+  const text = lines.join('\n');
   try {
-    await navigator.clipboard.writeText(txt);
+    await navigator.clipboard.writeText(text);
     setStatus(`Copied ${lines.length} URL(s) to clipboard.`, 'ok');
   } catch {
-    window.prompt('Copy URLs:', txt);
+    window.prompt('Copy URLs:', text);
   }
 });
 
-// Returns { ok: boolean, reason: string, expiresAt: Date|null }
-function checkCdnUrl(url) {
-  if (!url) return { ok: false, reason: 'empty url', expiresAt: null };
-  let u;
-  try { u = new URL(url); }
-  catch { return { ok: false, reason: 'invalid url', expiresAt: null }; }
-  
-  // Image CDN: explicit x-expires
-  const xExp = Number(u.searchParams.get('x-expires') || 0);
-  if (xExp > 0) {
-    const at = new Date(xExp * 1000);
-    return xExp * 1000 < Date.now() ?
-      { ok: false, reason: 'image url expired at ' + at.toISOString(), expiresAt: at } :
-      { ok: true, reason: 'image url valid until ' + at.toISOString(), expiresAt: at };
-  }
-  
-  // Video CDN: decode l=YYYYMMDDHHMMSS..., assume 24h TTL (safe default)
-  const l = u.searchParams.get('l') || '';
-  if (/^\d{14}/.test(l)) {
-    const t = l.slice(0, 14);
-    const gen = Date.UTC(
-      +t.slice(0, 4), +t.slice(4, 6) - 1, +t.slice(6, 8),
-      +t.slice(8, 10), +t.slice(10, 12), +t.slice(12, 14),
-    );
-    const at = new Date(gen + 24 * 3600 * 1000); // 24h from generation
-    const at48 = new Date(gen + 48 * 3600 * 1000); // 48h upper bound
-    return at.getTime() < Date.now() ?
-      { ok: false, reason: `video url generated ${new Date(gen).toISOString()}, assumed dead since ${at.toISOString()} (48h max: ${at48.toISOString()})`, expiresAt: at } :
-      { ok: true, reason: `video url generated ${new Date(gen).toISOString()}, assumed valid until ${at.toISOString()}`, expiresAt: at };
-  }
-  
-  // Unknown scheme — let the server decide
-  return { ok: true, reason: 'unknown scheme — not pre-checked', expiresAt: null };
-}
-
-/**
- * POSTs to the upload endpoint with one retry on network-level errors
- * (i.e. the browser's fetch() throwing "Load failed" / "Failed to fetch").
- *
- * Returns { res, data } on any completed HTTP response (any status code).
- * Throws only if BOTH attempts fail at the network layer.
- */
+/* ---------- upload helper (retry once on network failure) ---------- */
 async function postUpload(row, key) {
   const payload = JSON.stringify({
     video_cdn: row.video_cdn,
-    file_key: row.file_key,
     image_cdn: row.image_cdn || '',
-    date: row.date_posted || '',
+    file_key:  row.file_key,
   });
-  
+
   let lastErr;
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const res = await fetch(UPLOAD_URL, {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
-        body: payload,
+        body:    payload,
       });
       let data = {};
       try { data = await res.json(); } catch {}
@@ -546,7 +528,7 @@ async function postUpload(row, key) {
   throw lastErr;
 }
 
-/* ---------- upload ---------- */
+/* ---------- upload loop ---------- */
 btnUpload.addEventListener('click', async () => {
   if (uploading) return;
   const key = getApiKey();
@@ -587,45 +569,40 @@ btnUpload.addEventListener('click', async () => {
     try {
       const { res, data } = await postUpload(row, key);
 
+      /* --- partial: video failed, image saved --- */
       if (data && data.partial && !data.success) {
-        statusByKey.set(row.file_key, { state: 'partial', error: data.error });
-        if (data.imageUrl) resolveUrlByKey.set(row.file_key + ':image', data.imageUrl);
+        statusByKey.set(row.file_key, { state: 'partial', error: data.video_error });
+        if (data.image_url) imageUrlByKey.set(row.file_key, data.image_url);
         partial++; statPartial.textContent = partial;
-        log(`part ${row.file_key} — ${data.error}`, 'err');
-        if (data.imageKey) log(`     image saved: ${data.imageKey}`, 'ok');
-        if (data.imageUrl) log(`     ${data.imageUrl}`, 'ok');
+        log(`part ${row.file_key} — ${data.video_error || 'video failed'} · image ✓`, 'warn');
+        if (data.image_url) log(`     image: ${data.image_url}`);
         tick(); renderRows();
         continue;
       }
 
+      /* --- full failure --- */
       if (!res.ok || !data.success) {
-        statusByKey.set(row.file_key, {
-          state: 'err',
-          error: data.error || `HTTP ${res.status}`,
-        });
+        const errMsg = data.video_error || data.error || `HTTP ${res.status}`;
+        statusByKey.set(row.file_key, { state: 'err', error: errMsg });
         fail++; statFail.textContent = fail;
-        log(`fail ${row.file_key} — ${data.error || ('HTTP ' + res.status)}`, 'err');
+        log(`fail ${row.file_key} — ${errMsg}`, 'err');
         tick(); renderRows();
         continue;
       }
 
+      /* --- full success --- */
       statusByKey.set(row.file_key, { state: 'ok' });
-      if (data.videoUrl) resolveUrlByKey.set(row.file_key, data.videoUrl);
-      if (data.imageUrl) resolveUrlByKey.set(row.file_key + ':image', data.imageUrl);
+      if (data.video_url) videoUrlByKey.set(row.file_key, data.video_url);
+      if (data.image_url) imageUrlByKey.set(row.file_key, data.image_url);
 
       ok++; statOk.textContent = ok;
-      log(`ok   ${row.file_key} — bytes=${data.bytes ?? '?'}` +
-          ` · videoKey=${data.videoKey || '-'} · imageKey=${data.imageKey || '-'}`, 'ok');
-      if (data.videoUrl) log(`     video: ${data.videoUrl}`);
-      if (data.imageUrl) log(`     image: ${data.imageUrl}`);
+      log(`ok   ${row.file_key}`, 'ok');
+      if (data.video_url) log(`     video: ${data.video_url}`);
+      if (data.image_url) log(`     image: ${data.image_url}`);
     } catch (err) {
-      statusByKey.set(row.file_key, { state: 'ambiguous', error: err.message });
+      statusByKey.set(row.file_key, { state: 'err', error: err.message });
       fail++; statFail.textContent = fail;
-      log(
-        `ambiguous ${row.file_key} — ${err.message}` +
-        ` · server state unknown, check DB (status/video_url) before retrying`,
-        'err',
-      );
+      log(`fail ${row.file_key} — ${err.message}`, 'err');
     }
     tick();
     renderRows();
@@ -636,7 +613,7 @@ btnUpload.addEventListener('click', async () => {
     `done=${done} · ok=${ok} · partial=${partial} · fail=${fail} · skip=${skip}`;
   setStatus(
     `Upload complete — ${ok} ok, ${partial} partial, ${fail} failed, ${skip} skipped.`,
-    (fail === 0 && partial === 0) ? 'ok' : (ok === 0 ? 'err' : 'warn'),
+    (fail === 0 && partial === 0) ? 'ok' : (ok === 0 && partial === 0 ? 'err' : 'warn')
   );
 });
 
