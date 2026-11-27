@@ -20,14 +20,37 @@ export default async function handler(req, res) {
   // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-API-Key');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
 
   if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'POST')    return res.status(405).json({ error: 'POST only' });
+  if (!['GET', 'POST'].includes(req.method))
+    return res.status(405).json({ error: 'GET or POST only' });
 
   // Auth
   if (req.headers['x-api-key'] !== process.env.API_KEY) {
     return res.status(401).json({ error: 'unauthorized' });
+  }
+
+  if (req.method === 'GET') {
+    const fileKey = typeof req.query?.file_key === 'string'
+      ? req.query.file_key.trim()
+      : '';
+    if (!fileKey) return res.status(400).json({ error: 'file_key required' });
+
+    try {
+      const result = await db.execute({
+        sql: `SELECT "file_key", "video_url", "cover_url", "file_size", "status", "created_at"
+              FROM "b2_cloud"
+              WHERE "file_key" = ?
+              LIMIT 1`,
+        args: [fileKey],
+      });
+      if (!result.rows.length)
+        return res.status(404).json({ error: 'file_key not found in b2_cloud' });
+      return res.status(200).json({ row: result.rows[0] });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
   }
 
   const { sql, params } = req.body ?? {};
