@@ -106,3 +106,8 @@
   }
   .btn-spinner.hidden { display: none; }
   @keyframes spin { to { transform: rotate(360deg); } }
+header a{
+color:white;
+font-weight: 700;
+text-decoration: none;
+}
