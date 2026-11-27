@@ -52,21 +52,13 @@ const tikJsonToB2 = (function () {
 
   function transformPost(post, userId) {
     return {
-      user_id:             userId,
-      file_key:            buildFileKey(userId, post.Date),
-      WhoCanView:          post.WhoCanView ?? null,
-      likes:               Number(post.Likes) || 0,
-      date_posted:         post.Date ?? null,
-      video_cdn:           post.Link ?? null,
-      image_cdn:           post.CoverImage ?? null,
-      b2_bucket:           null,
-      video_url:           null,
-      cover_url:           null,
-      file_size:           null,
-      status:              null,
-      created_at:          null,
-      image_blob_pathname: null,
-      image_blob_url:      null,
+      user_id:     userId,
+      file_key:    buildFileKey(userId, post.Date),
+      WhoCanView:  post.WhoCanView  ?? null,
+      likes:       Number(post.Likes) || 0,
+      date_posted: post.Date        ?? null,
+      video_cdn:   post.Link        ?? null,
+      image_cdn:   post.CoverImage  ?? null,
     };
   }
 
