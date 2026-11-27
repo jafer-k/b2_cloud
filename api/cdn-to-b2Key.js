@@ -393,3 +393,8 @@ export default async function handler(req, res) {
     });
   }
 }
+
+// at the BOTTOM of cdn-to-b2.js, after the handler export
+export const config = {
+  maxDuration: 60,   // Hobby max. Bump to 300 on Pro.
+};
