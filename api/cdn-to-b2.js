@@ -174,7 +174,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ success: false, error: 'file_key required' });
 
   const dateStr  = typeof body.date === 'string' ? body.date : '';
-  const imageUrl = typeof body.coverImg === 'string' ? body.coverImg : '';
+  const imageUrl = typeof body.image_cdn === 'string' ? body.image_cdn : '';
 
   const videoKey = `videos/${safeSegment(fileKey)}.mp4`;
   const nowMs    = Date.now();
@@ -201,27 +201,11 @@ export default async function handler(req, res) {
       console.error('status=fail update failed:', dbErr.message);
     }
 
-    let failedId = null;
-    try {
-      const ins = await db.execute({
-        sql: `INSERT INTO failed_uploads
-                (video_url, cover_key, user_id, date, likes, error)
-              VALUES (?, ?, ?, ?, ?, ?)`,
-        args: [url, imageKey, body.userId ?? null, dateStr || null,
-               Number.isInteger(body.likes) && body.likes >= 0 ? body.likes : 0,
-               errMsg],
-      });
-      failedId = ins.lastInsertRowid != null ? String(ins.lastInsertRowid) : null;
-    } catch (dbErr) {
-      console.error('failed_uploads insert failed:', dbErr.message);
-    }
-
     return res.status(502).json({
       success: false,
       error: errMsg,
       file_key: fileKey,
       imageKey,
-      failedId,
     });
   }
 
