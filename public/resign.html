@@ -77,7 +77,6 @@
         Update DB
         <span id="spinnerUpdateDb" class="btn-spinner hidden"></span>
       </button>
-      <button id="btnCopyAll" class="secondary hidden">Copy all URLs</button>
       <span class="muted" id="generateSummary"></span>
     </div>
     <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
@@ -118,7 +117,6 @@ const sourceCount     = $('sourceCount');
 const generatePanel   = $('generatePanel');
 const btnGenerate     = $('btnGenerate');
 const btnUpdateDb     = $('btnUpdateDb');
-const btnCopyAll      = $('btnCopyAll');
 const spinnerGenerate = $('spinnerGenerate');
 const spinnerUpdateDb = $('spinnerUpdateDb');
 const generateSummary = $('generateSummary');
@@ -168,7 +166,6 @@ function refreshUi() {
   spinnerGenerate.classList.toggle('hidden', phase !== 'generate');
   spinnerUpdateDb.classList.toggle('hidden', phase !== 'updateDb');
   btnUpdateDb.classList.toggle('hidden',    working || !hasUrls);
-  btnCopyAll.classList.toggle('hidden',     working || !hasUrls);
 }
 
 function setEntries(list, label) {
@@ -319,20 +316,6 @@ btnClear.addEventListener('click', () => {
 });
 
 /* ---------- copy all ---------- */
-btnCopyAll.addEventListener('click', async () => {
-  const lines = results
-    .filter(r => r && r.image_url)
-    .map(r => `${r.user_id || ''}\t${r.file_key || ''}\t${r.image_url}`);
-
-  if (!lines.length) return;
-  const text = lines.join('\n');
-  try {
-    await navigator.clipboard.writeText(text);
-    setStatus(`Copied ${lines.length} URL(s).`, 'ok');
-  } catch {
-    window.prompt('Copy URLs:', text);
-  }
-});
 
 /* ---------- resign helper ---------- */
 async function resignBatch(items, apiKey) {
