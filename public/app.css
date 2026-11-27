@@ -1,0 +1,108 @@
+
+  :root {
+    --bg:#0f1115; --panel:#171a21; --panel-2:#1e222b; --border:#2a2f3a;
+    --text:#e6e9ef; --muted:#8b93a3; --accent:#4f8cff; --accent-hover:#3a75e0;
+    --ok:#2ecc71; --err:#ff5c5c; --warn:#ffb428;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+         background:var(--bg); color:var(--text); line-height:1.5; }
+  header { padding:16px 20px; border-bottom:1px solid var(--border);
+           display:flex; align-items:center; justify-content:space-between;
+           flex-wrap:wrap; gap:10px; }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  header .sub { font-size:12px; color:var(--muted); font-family:var(--mono); }
+  main { max-width:1000px; margin:0 auto; padding:20px; display:grid; gap:16px; }
+  .panel { background:var(--panel); border:1px solid var(--border);
+           border-radius:10px; padding:14px; }
+  .panel h2 { font-size:13px; text-transform:uppercase; letter-spacing:.08em;
+              color:var(--muted); margin:0 0 10px; font-weight:600; }
+  .panel h3 { font-size:12px; text-transform:uppercase; letter-spacing:.06em;
+              color:var(--muted); margin:14px 0 8px; font-weight:600; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  button { background:var(--accent); color:#fff; border:none; border-radius:8px;
+           padding:8px 14px; font-size:13px; font-weight:600; cursor:pointer;
+           transition:background .15s ease, opacity .15s ease;
+           display:inline-flex; align-items:center; gap:8px; }
+  button:hover:not(:disabled) { background:var(--accent-hover); }
+  button.secondary { background:var(--panel-2); color:var(--text);
+                     border:1px solid var(--border); }
+  button.secondary:hover:not(:disabled) { background:#262b36; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  label.file-btn { background:var(--panel-2); color:var(--text);
+                   border:1px solid var(--border); border-radius:8px;
+                   padding:8px 14px; font-size:13px; font-weight:600;
+                   cursor:pointer; display:inline-flex; align-items:center; gap:8px;
+                   transition:background .15s ease, opacity .15s ease; }
+  label.file-btn:hover { background:#262b36; }
+  input[type="file"] { display:none; }
+  input[type="password"], input[type="text"], select, textarea {
+    background:var(--panel-2); color:var(--text);
+    border:1px solid var(--border); border-radius:8px;
+    padding:8px 10px; font-family:var(--mono); font-size:13px;
+  }
+  input[type="password"], input[type="text"] { width:100%; max-width:480px; }
+  select { min-width:160px; }
+  textarea { width:100%; min-height:120px; resize:vertical;
+             white-space:pre; word-break:normal; }
+  input:focus, select:focus, textarea:focus {
+    outline:2px solid var(--accent); outline-offset:-2px;
+  }
+  .field { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
+  .field label { font-size:12px; color:var(--muted);
+                 text-transform:uppercase; letter-spacing:.06em; font-weight:600; }
+  .file-banner { display:flex; align-items:center; gap:12px;
+                 padding:10px 12px; background:var(--panel-2);
+                 border:1px solid var(--border); border-radius:8px;
+                 font-family:var(--mono); font-size:12.5px; flex-wrap:wrap; }
+  .file-banner .file-name { font-weight:600; }
+  .file-banner .file-size { color:var(--muted); }
+  .status { font-size:12.5px; padding:8px 10px; border-radius:8px;
+            background:var(--panel-2); border:1px solid var(--border);
+            color:var(--muted); font-family:var(--mono);
+            min-height:34px; display:flex; align-items:center; gap:10px; }
+  .status.ok  { color:var(--ok);  border-color:rgba(46,204,113,.4); }
+  .status.err { color:var(--err); border-color:rgba(255,92,92,.4); }
+  .status.warn{ color:var(--warn);border-color:rgba(255,180,40,.4); }
+  pre { margin:0; background:var(--panel-2); border:1px solid var(--border);
+        border-radius:8px; padding:12px; overflow:auto; max-height:520px;
+        font-family:var(--mono); font-size:12.5px;
+        white-space:pre-wrap; word-break:break-word; }
+  .muted { color:var(--muted); font-size:12.5px; }
+  .stat-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:10px; }
+  .stat { background:var(--panel-2); border:1px solid var(--border);
+          border-radius:8px; padding:10px 12px; }
+  .stat .k { font-size:11px; color:var(--muted);
+             text-transform:uppercase; letter-spacing:.06em; }
+  .stat .v { font-size:16px; font-weight:700; font-family:var(--mono);
+             color:var(--accent); margin-top:2px; word-break:break-all; }
+  .hidden { display:none !important; }
+  .key-status { font-size:12px; font-family:var(--mono); color:var(--muted);
+                margin-top:6px; }
+  .key-status.set { color:var(--ok); }
+  .result-error { color:var(--err); font-size:12px; font-family:var(--mono);
+                  margin-top:8px; white-space:pre-wrap; word-break:break-word; }
+  .stored-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+                padding:8px 10px; background:var(--panel-2);
+                border:1px solid var(--border); border-radius:8px;
+                font-size:13px; }
+  .stored-row .dot { color:var(--ok); font-weight:700; }
+  .update-result { font-family:var(--mono); font-size:12px;
+                   padding:8px 10px; border-radius:8px; margin-top:10px;
+                   background:var(--panel-2); border:1px solid var(--border); }
+  .update-result.ok  { color:var(--ok);  border-color:rgba(46,204,113,.4); }
+  .update-result.err { color:var(--err); border-color:rgba(255,92,92,.4); }
+  /* Spinner */
+  .btn-spinner {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    opacity: .85;
+    animation: spin .65s linear infinite;
+    flex-shrink: 0;
+  }
+  .btn-spinner.hidden { display: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
