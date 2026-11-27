@@ -4,6 +4,8 @@ import { S3Client } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { Readable, Transform } from 'node:stream';
 
+// at the TOP of cdn-to-b2.js, near the imports
+const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 50_000);   // was 60_000
 /* ---------- clients ---------- */
 
 const db = createClient({
