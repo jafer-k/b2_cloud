@@ -4,6 +4,7 @@ import { S3Client } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { Readable } from 'node:stream';
 import { HeadObjectCommand } from '@aws-sdk/client-s3';
+import { Transform } from 'node:stream';
 
 /* ---------- env ---------- */
 const REQUIRED = [
@@ -62,22 +63,29 @@ async function fetchAndUpload(url, key, contentType) {
   if (!res.ok) throw new Error(`fetch HTTP ${res.status}`);
   if (!res.body) throw new Error('empty response body');
 
-  const sizeHeader = res.headers.get('content-length');
-  const upstreamSize = sizeHeader ? Number(sizeHeader) : null;
+  let bytes = 0;
+  const counter = new Transform({
+    transform(chunk, _enc, cb) {
+      bytes += chunk.length;
+      cb(null, chunk);
+    },
+  });
+
+  const src = Readable.fromWeb(res.body);
+  src.pipe(counter);
 
   await new Upload({
     client: s3,
     params: {
       Bucket:      process.env.B2_BUCKET_NAME,
       Key:         key,
-      Body:        Readable.fromWeb(res.body),
+      Body:        counter,
       ContentType: contentType,
     },
   }).done();
 
-  return upstreamSize;
+  return bytes;   // exact number of bytes uploaded
 }
-
 function resolveUrl(key, req) {
   if (!key) return null;
   const base = PUBLIC_BASE_URL || (() => {
