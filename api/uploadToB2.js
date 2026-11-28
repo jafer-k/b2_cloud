@@ -3,7 +3,6 @@ import { createClient } from '@libsql/client';
 import { S3Client } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { Readable } from 'node:stream';
-import { HeadObjectCommand } from '@aws-sdk/client-s3';
 import { Transform } from 'node:stream';
 
 /* ---------- env ---------- */
@@ -35,13 +34,6 @@ function safeName(s, max = 100) {
   return String(s ?? '').trim().replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, max);
 }
 
-async function getObjectSize(key) {
-  const out = await s3.send(new HeadObjectCommand({
-    Bucket: process.env.B2_BUCKET_NAME,
-    Key:    key,
-  }));
-  return out.ContentLength ?? null;
-}
 
 async function fetchAndUploadOLD(url, key, contentType) {
   const res = await fetch(url, { redirect: 'follow' });
