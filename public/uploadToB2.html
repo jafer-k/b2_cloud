@@ -210,22 +210,31 @@ btnLoadOne.addEventListener('click', async () => {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-    const list = (data.rows || []).map(r => ({
+    if (!data.rows || data.rows.length === 0) {
+      setStatus('Row 336 not found.', 'err');
+      return;
+    }
+
+    const r = data.rows[0];
+    const row = {
       file_key:    r.file_key,
-      user_id:     r.user_id,
-      likes:       r.likes,
       video_cdn:   r.video_cdn,
       image_cdn:   r.image_cdn,
-      date_posted: r.date_posted,
-      status:      r.status,
-      video_url:   r.video_url,
-      image_url:   r.image_url,
-    }));
-    if (list.length === 0) { setStatus('Row 336 not found.', 'err'); return; }
-    setRows(list, 'single · id=336');
-    setStatus('Loaded row 336. Click Upload.', 'ok');
+    };
+
+    setStatus(`Uploading row 336 (${row.file_key})…`, '');
+
+    const { res: upRes, data: upData } = await postUpload(row, key);
+    console.log('[336-debug] upload', upRes.status, upData);
+
+    setRows([row], 'single · id=336');
+    setStatus(
+      `Row 336 upload: HTTP ${upRes.status} · status=${upData.status} · db_updated=${upData.db_updated}` +
+      (upData.error ? ` · ${upData.error}` : ''),
+      upData.db_updated && upData.status === 'ok' ? 'ok' : 'err',
+    );
   } catch (err) {
-    setStatus('Load failed: ' + err.message, 'err');
+    setStatus('Load/upload failed: ' + err.message, 'err');
   }
 });
 /* ---------- set rows ---------- */
