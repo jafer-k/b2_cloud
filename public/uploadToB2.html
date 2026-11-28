@@ -57,6 +57,7 @@
       </label>
       <button id="btnLoadFromDb" class="secondary" disabled>Load from DB</button>
       <button id="btnClear" class="secondary">Clear</button>
+      <button id="btnLoadOne" class="btn">Load one row</button>
     </div>
     <div class="field" style="margin-top:10px;">
       <label for="dbUserId">user_id (DB load — optional, empty = all users)</label>
@@ -188,6 +189,51 @@ function log(msg, kind) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
+  const btnLoadOne = $('btnLoadOne');
+
+btnLoadOne.addEventListener('click', async () => {
+  const key = getApiKey();
+  if (!key) { setStatus('Save an API key first.', 'err'); return; }
+
+  const fk = prompt('Enter file_key to load:');
+  if (!fk) return;
+
+  const sql = `SELECT "file_key","user_id","likes","video_cdn","image_cdn","date_posted",
+                      "status","video_url","image_url"
+               FROM "b2_cloud"
+               WHERE "file_key" = ?
+               LIMIT 1`;
+
+  setStatus(`Loading "${fk}"…`, '');
+  try {
+    const res = await fetch(SQL_URL, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+      body: JSON.stringify({ sql, params: [fk] }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    const list = (data.rows || []).map(r => ({
+      file_key:    r.file_key,
+      user_id:     r.user_id,
+      likes:       r.likes,
+      video_cdn:   r.video_cdn,
+      image_cdn:   r.image_cdn,
+      date_posted: r.date_posted,
+      status:      r.status,
+      video_url:   r.video_url,
+      image_url:   r.image_url,
+    }));
+    if (list.length === 0) {
+      setStatus(`No row with file_key="${fk}".`, 'err');
+      return;
+    }
+    setRows(list, `single · ${fk}`);
+    setStatus(`Loaded 1 row for "${fk}". Click Upload.`, 'ok');
+  } catch (err) {
+    setStatus('Load failed: ' + err.message, 'err');
+  }
+});
 /* ---------- set rows ---------- */
 function setRows(newRows, label) {
   rows           = newRows;
