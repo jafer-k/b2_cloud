@@ -183,7 +183,7 @@ export default async function handler(req, res) {
           imageError ? null : imageKey,
           imageError ? null : imageUrl,
           videoSize,
-          nowMs, fileKey,
+          nowMs, file_key,
         ],
       });
       console.log('[336-debug] OK-branch rowsAffected=', r.rowsAffected,
