@@ -145,6 +145,7 @@ export default async function handler(req, res) {
     console.error('DB update failed:', e.message);
     return res.status(500).json({
       success: false,
+      db_updated: false,
       error: 'DB update failed: ' + e.message,
       video_url: videoError ? null : videoUrl,
       image_url: imageError ? null : imageUrl,
@@ -164,5 +165,6 @@ export default async function handler(req, res) {
     video_error: videoError,
     image_error: imageError,
     status:      videoError ? 'fail' : 'ok',
+    db_updated: true,
   });
 }
