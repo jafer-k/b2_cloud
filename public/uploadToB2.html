@@ -408,35 +408,42 @@ btnUpload.addEventListener('click', async () => {
     progressFill.style.width = `${Math.round(done / total * 100)}%`;
   };
 
-  for (const row of targets) {
-    if (stopRequested) { skip++; statSkip.textContent = skip; tick(); continue; }
+  let dbCount = 0;
 
-    try {
-      const { data } = await postUpload(row, key);
+for (const row of targets) {
+  if (stopRequested) { skip++; statSkip.textContent = skip; tick(); continue; }
 
-      const videoOk = !!data.video_url;
-      const imageOk = !!data.image_url;
+  try {
+    const { data } = await postUpload(row, key);
 
-      if (videoOk) {
-        videoUrlByKey.set(row.file_key, data.video_url);
-        if (data.image_url) imageUrlByKey.set(row.file_key, data.image_url);
-        ok++; statOk.textContent = ok;
-      } else if (imageOk) {
-        imageUrlByKey.set(row.file_key, data.image_url);
-        partial++; statPartial.textContent = partial;
-      } else {
-        fail++; statFail.textContent = fail;
-      }
-    } catch (err) {
+    if (data.db_updated) {
+      dbCount++;
+      statDb.textContent = dbCount;
+    }
+
+    const videoOk = !!data.video_url;
+    const imageOk = !!data.image_url;
+
+    if (videoOk) {
+      videoUrlByKey.set(row.file_key, data.video_url);
+      if (data.image_url) imageUrlByKey.set(row.file_key, data.image_url);
+      ok++; statOk.textContent = ok;
+    } else if (imageOk) {
+      imageUrlByKey.set(row.file_key, data.image_url);
+      partial++; statPartial.textContent = partial;
+    } else {
       fail++; statFail.textContent = fail;
     }
-    tick();
+  } catch (err) {
+    fail++; statFail.textContent = fail;
   }
+  tick();
+}
 
   uploading = false; stopRequested = false; refreshUi();
 
   uploadSummary.textContent =
-    `total=${total} · ok=${ok} · partial=${partial} · fail=${fail} · skip=${skip}`;
+  `total=${total} · db=${dbCount} · ok=${ok} · partial=${partial} · fail=${fail} · skip=${skip}`;
 
   const kind = (fail === 0 && partial === 0) ? 'ok'
              : (ok === 0 && partial === 0)   ? 'err'
