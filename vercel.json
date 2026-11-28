@@ -1,6 +1,6 @@
 {
   "functions": {
-    "api/cdn-to-b2.js": {
+    "api/uploadToB2.js": {
       "maxDuration": 60
     }
   }
