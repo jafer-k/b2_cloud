@@ -132,12 +132,13 @@ export default async function handler(req, res) {
   const imageUrl = resolveUrl(imageKey, req);
 
   /* --- video --- */
-  let videoError = null;
-  try {
-    await fetchAndUpload(video_cdn, videoKey, 'video/mp4');
-  } catch (e) {
-    videoError = e.message;
-  }
+let videoSize = null;
+let videoError = null;
+try {
+  videoSize = await fetchAndUpload(video_cdn, videoKey, 'video/mp4');
+} catch (e) {
+  videoError = e.message;
+}
 
   /* --- image (best-effort) --- */
   let imageError = null;
@@ -168,6 +169,7 @@ export default async function handler(req, res) {
                      "video_url"      = ?,
                      "image_key" = COALESCE(?, "image_key"),
                      "image_url"      = COALESCE(?, "image_url"),
+                     "file_size"     = ?,
                      "status"         = 'ok',
                      "created_at"     = ?
                WHERE "file_key"       = ?`,
@@ -175,6 +177,7 @@ export default async function handler(req, res) {
           videoKey, videoUrl,
           imageError ? null : imageKey,
           imageError ? null : imageUrl,
+          videoSize,
           nowMs, fileKey,
         ],
       });
