@@ -3,6 +3,7 @@ import { createClient } from '@libsql/client';
 import { S3Client } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { Readable } from 'node:stream';
+import { HeadObjectCommand } from '@aws-sdk/client-s3';
 
 /* ---------- env ---------- */
 const REQUIRED = [
@@ -33,7 +34,15 @@ function safeName(s, max = 100) {
   return String(s ?? '').trim().replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, max);
 }
 
-async function fetchAndUpload(url, key, contentType) {
+async function getObjectSize(key) {
+  const out = await s3.send(new HeadObjectCommand({
+    Bucket: process.env.B2_BUCKET_NAME,
+    Key:    key,
+  }));
+  return out.ContentLength ?? null;
+}
+
+async function fetchAndUploadOLD(url, key, contentType) {
   const res = await fetch(url, { redirect: 'follow' });
   if (!res.ok) throw new Error(`fetch HTTP ${res.status}`);
   if (!res.body) throw new Error('empty response body');
@@ -46,6 +55,27 @@ async function fetchAndUpload(url, key, contentType) {
       ContentType: contentType,
     },
   }).done();
+}
+
+async function fetchAndUpload(url, key, contentType) {
+  const res = await fetch(url, { redirect: 'follow' });
+  if (!res.ok) throw new Error(`fetch HTTP ${res.status}`);
+  if (!res.body) throw new Error('empty response body');
+
+  const sizeHeader = res.headers.get('content-length');
+  const upstreamSize = sizeHeader ? Number(sizeHeader) : null;
+
+  await new Upload({
+    client: s3,
+    params: {
+      Bucket:      process.env.B2_BUCKET_NAME,
+      Key:         key,
+      Body:        Readable.fromWeb(res.body),
+      ContentType: contentType,
+    },
+  }).done();
+
+  return upstreamSize;
 }
 
 function resolveUrl(key, req) {
