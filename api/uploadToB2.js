@@ -118,7 +118,7 @@ export default async function handler(req, res) {
       await db.execute({
         sql: `UPDATE "b2_cloud"
                  SET "status"         = 'fail',
-                     "image_blob_key" = COALESCE(?, "image_blob_key"),
+                     "image_key" = COALESCE(?, "image_blob_key"),
                      "image_url"      = COALESCE(?, "image_url")
                WHERE "file_key"       = ?`,
         args: [imageError ? null : imageKey, imageError ? null : imageUrl, file_key],
@@ -126,9 +126,9 @@ export default async function handler(req, res) {
     } else {
       await db.execute({
         sql: `UPDATE "b2_cloud"
-                 SET "video_blob_key" = ?,
+                 SET "video_key" = ?,
                      "video_url"      = ?,
-                     "image_blob_key" = COALESCE(?, "image_blob_key"),
+                     "image_key" = COALESCE(?, "image_blob_key"),
                      "image_url"      = COALESCE(?, "image_url"),
                      "status"         = 'ok',
                      "created_at"     = ?
