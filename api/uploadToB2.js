@@ -34,7 +34,6 @@ function safeName(s, max = 100) {
   return String(s ?? '').trim().replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, max);
 }
 
-
 async function fetchAndUploadOLD(url, key, contentType) {
   const res = await fetch(url, { redirect: 'follow' });
   if (!res.ok) throw new Error(`fetch HTTP ${res.status}`);
@@ -49,7 +48,6 @@ async function fetchAndUploadOLD(url, key, contentType) {
     },
   }).done();
 }
-
 async function fetchAndUpload(url, key, contentType) {
   const res = await fetch(url, { redirect: 'follow' });
   if (!res.ok) throw new Error(`fetch HTTP ${res.status}`);
@@ -76,8 +74,9 @@ async function fetchAndUpload(url, key, contentType) {
     },
   }).done();
 
-  return bytes;   // exact number of bytes uploaded
+  return bytes;
 }
+
 function resolveUrl(key, req) {
   if (!key) return null;
   const base = PUBLIC_BASE_URL || (() => {
@@ -124,13 +123,13 @@ export default async function handler(req, res) {
   const imageUrl = resolveUrl(imageKey, req);
 
   /* --- video --- */
-let videoSize = null;
-let videoError = null;
-try {
-  videoSize = await fetchAndUpload(video_cdn, videoKey, 'video/mp4');
-} catch (e) {
-  videoError = e.message;
-}
+  let videoSize = null;
+  let videoError = null;
+  try {
+    videoSize = await fetchAndUpload(video_cdn, videoKey, 'video/mp4');
+  } catch (e) {
+    videoError = e.message;
+  }
 
   /* --- image (best-effort) --- */
   let imageError = null;
@@ -144,27 +143,41 @@ try {
 
   /* --- DB --- */
   const nowMs = Date.now();
+
+  console.log('[336-debug] ABOUT TO UPDATE', JSON.stringify({
+    file_key,
+    videoKey,
+    videoUrl,
+    imageKey,
+    imageUrl,
+    videoSize,
+    videoError,
+    imageError,
+  }));
+
   try {
     if (videoError) {
-      await db.execute({
+      const r = await db.execute({
         sql: `UPDATE "b2_cloud"
-                 SET "status"         = 'fail',
+                 SET "status"    = 'fail',
                      "image_key" = COALESCE(?, "image_key"),
-                     "image_url"      = COALESCE(?, "image_url")
-               WHERE "file_key"       = ?`,
+                     "image_url" = COALESCE(?, "image_url")
+               WHERE "file_key"  = ?`,
         args: [imageError ? null : imageKey, imageError ? null : imageUrl, file_key],
       });
+      console.log('[336-debug] FAIL-branch rowsAffected=', r.rowsAffected,
+                  'file_key=', JSON.stringify(file_key));
     } else {
-      await db.execute({
+      const r = await db.execute({
         sql: `UPDATE "b2_cloud"
-                 SET "video_key" = ?,
-                     "video_url"      = ?,
-                     "image_key" = COALESCE(?, "image_key"),
-                     "image_url"      = COALESCE(?, "image_url"),
-                     "file_size"     = ?,
-                     "status"         = 'ok',
-                     "created_at"     = ?
-               WHERE "file_key"       = ?`,
+                 SET "video_key"  = ?,
+                     "video_url"  = ?,
+                     "image_key"  = COALESCE(?, "image_key"),
+                     "image_url"  = COALESCE(?, "image_url"),
+                     "file_size"  = ?,
+                     "status"     = 'ok',
+                     "created_at" = ?
+               WHERE "file_key"   = ?`,
         args: [
           videoKey, videoUrl,
           imageError ? null : imageKey,
@@ -173,9 +186,18 @@ try {
           nowMs, fileKey,
         ],
       });
+      console.log('[336-debug] OK-branch rowsAffected=', r.rowsAffected,
+                  'file_key=', JSON.stringify(file_key));
     }
+
+    const check = await db.execute({
+      sql: 'SELECT id, status, video_key, video_url, image_key, image_url, file_size FROM b2_cloud WHERE file_key = ?',
+      args: [file_key],
+    });
+    console.log('[336-debug] POST-UPDATE rows=', JSON.stringify(check.rows));
+
   } catch (e) {
-    console.error('DB update failed:', e.message);
+    console.error('[336-debug] DB FAILED', e.message, 'file_key=', JSON.stringify(file_key));
     return res.status(500).json({
       success: false,
       db_updated: false,
