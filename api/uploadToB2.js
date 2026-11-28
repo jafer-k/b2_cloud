@@ -1,4 +1,4 @@
-// api/cdn-to-b2.js
+// api/uploadToB2.js
 import { createClient } from '@libsql/client';
 import { S3Client } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
